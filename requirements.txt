@@ -1,0 +1,24 @@
+# teum 백엔드 라이브러리 (Python 3.12 기준)
+# torch / torchvision은 GPU 빌드 때문에 여기 넣지 않고 먼저 따로 설치한다.
+#   pip install torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cu126
+# 브레이크등 모델 학습은 Google Colab에서 하므로, 학습 전용 라이브러리는 여기 넣지 않는다.
+
+# 1~3단계: 탐지·추적·차선·신호 읽기
+ultralytics==8.4.193       # YOLO 차량·이륜차 탐지, 브레이크등 모델 실행, ByteTrack 추적
+lap==0.5.13                # ByteTrack이 내부에서 사용 (실행 중 자동 설치를 막기 위해 미리 설치)
+opencv-python==5.0.0.93    # 영상 읽기, 클립 저장, 차선(OpenCV), 방향지시등 밝기 분석
+numpy==2.5.4               # TTC 직선 맞추기, 밝기 패턴 계산
+
+# 설정
+pyyaml==6.0.3              # config.yaml 읽기
+python-dotenv==1.2.4       # .env의 DB 접속 정보 읽기
+
+# 5단계: 서버
+fastapi==0.162.0           # API·WebSocket 서버
+uvicorn[standard]==0.54.0  # FastAPI 실행 서버 ([standard]에 WebSocket 지원 포함)
+python-multipart==0.0.32   # 영상 파일 업로드 받기
+pydantic==2.14.2           # 단계 사이 데이터 형식(스키마) 검사
+
+# 5단계: 아찔한 순간 기록 (PostgreSQL)
+sqlalchemy==2.1.8          # DB 테이블을 파이썬 코드로 다루기 (SQLite ↔ PostgreSQL 전환이 접속 주소 한 줄)
+psycopg[binary]==3.3.8     # PostgreSQL 연결 드라이버 ([binary]: 따로 빌드 없이 설치)
