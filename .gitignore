@@ -1,0 +1,14 @@
+.env
+front/.env
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+node_modules/
+dist/
+
+# 데이터·결과·가중치는 커밋하지 않는다
+data/
+outputs/
+*.pt
+*.mp4
