@@ -8,6 +8,7 @@ ultralytics==8.4.193       # YOLO 차량·이륜차 탐지, 브레이크등 모�
 lap==0.5.13                # ByteTrack이 내부에서 사용 (실행 중 자동 설치를 막기 위해 미리 설치)
 opencv-python==5.0.0.93    # 영상 읽기, 클립 저장, 차선(OpenCV), 방향지시등 밝기 분석
 numpy==2.5.4               # TTC 직선 맞추기, 밝기 패턴 계산
+imageio-ffmpeg==0.8.1      # 아찔한 순간 클립을 H.264 mp4로 저장 (ffmpeg 포함, 브라우저 재생용)
 
 # 설정
 pyyaml==6.0.3              # config.yaml 읽기
