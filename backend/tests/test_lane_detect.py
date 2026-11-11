@@ -85,3 +85,28 @@ def test_dashed_line_pieces_merge():
         cv2.line(img, p0, p1, (255, 255, 255), 8)
     lanes = detect_lanes(img, CFG["camera"], CFG["lane"])
     assert abs(_x_at(lanes["right"], 600) - 869) < 10
+
+
+def _road_with_left_edge(color_bgr: tuple) -> np.ndarray:
+    """요약: 회색 도로(60) 왼쪽에 색이 다른 영역을 두어, 왼쪽 차선 자리에 경계선 하나를 만든다.
+
+    도로보다 45 밝은 경계(회색 105)는 흰 칠 기준(+50)에 못 미친다. 색만 바꿔 노란 칠 / 연석을 흉내 낸다.
+    """
+    img = np.full((H, W, 3), 60, dtype=np.uint8)
+    pts = np.array([[0, H], [0, 430], [600, 430], [300, 700], [300, H]], dtype=np.int32)
+    cv2.fillPoly(img, [pts], color_bgr)
+    cv2.line(img, (980, 700), (680, 430), (255, 255, 255), 8)  # 오른쪽은 평범한 흰 차선
+    return img
+
+
+def test_yellow_line_kept():
+    """요약: 밝기 대비는 작아도 노란색(BGR 0,110,130 → 회색 약 104)이면 차선으로 남는지."""
+    lanes = detect_lanes(_road_with_left_edge((0, 110, 130)), CFG["camera"], CFG["lane"])
+    assert lanes["left"] is not None and abs(_x_at(lanes["left"], 600) - 411) < 10
+
+
+def test_dull_edge_rejected():
+    """요약: 같은 밝기의 회색 경계(연석·그림자 같은 칠 아닌 모서리)는 차선으로 보지 않는지."""
+    lanes = detect_lanes(_road_with_left_edge((105, 105, 105)), CFG["camera"], CFG["lane"])
+    assert lanes["left"] is None
+    assert lanes["right"] is not None  # 진짜 흰 차선은 그대로

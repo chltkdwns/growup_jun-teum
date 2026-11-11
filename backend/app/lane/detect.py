@@ -1,6 +1,7 @@
 """한 프레임에서 내 차선의 왼쪽·오른쪽 차선을 찾는다 (OpenCV 첫 버전).
 
 흐름: 회색 변환 → 흐림 → 윤곽선(Canny) → 관심 영역(사다리꼴) 자르기 → 직선 찾기(Hough)
+     → 차선 칠(흰색·노란색) 위에 있는 선분만 남기기
      → 선분을 화면 아래까지 연장해 선 묶음 만들기 → 내 차 기준 왼쪽·오른쪽에서 가장 가까운 묶음만 골라
      직선 하나로 합치기
 """
@@ -63,6 +64,41 @@ def _group_lines(cands: list, cluster_px: float) -> list:
     return [(float(np.median([x for x, _ in g])), [seg for _, seg in g]) for g in groups]
 
 
+def _paint_mask(frame_bgr: np.ndarray, gray: np.ndarray, roi_mask: np.ndarray, cfg_lane: dict) -> np.ndarray:
+    """차선 칠로 보이는 픽셀(흰색 또는 노란색)을 표시한 마스크를 만든다.
+
+    사용처: detect_lanes() 안에서 매 프레임 한 번.
+    입력: frame_bgr 원본(BGR), gray 회색 이미지, roi_mask 관심 영역 마스크(255=안),
+          cfg_lane(paint_white_contrast_min 도로보다 밝아야 하는 정도, yellow_h_min·yellow_h_max·yellow_s_min 노란색 범위)
+    출력: 칠 마스크 (bool, 프레임 크기)
+    주의: 흰색은 절대 밝기가 아니라 "관심 영역 도로 밝기의 중앙값보다 얼마나 밝은가"로 본다 (낮·흐림·그늘에서 같은 기준).
+          관심 영역 대부분이 도로라는 가정이라, 앞차가 영역을 크게 가리면 기준이 흔들릴 수 있다.
+    """
+    road_gray = float(np.median(gray[roi_mask > 0]))
+    white = gray > road_gray + cfg_lane["paint_white_contrast_min"]
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+    h, s = hsv[..., 0], hsv[..., 1]
+    yellow = (h >= cfg_lane["yellow_h_min"]) & (h <= cfg_lane["yellow_h_max"]) & (s >= cfg_lane["yellow_s_min"])
+    return white | yellow
+
+
+def _on_paint(seg: tuple, near_paint: np.ndarray, cfg_lane: dict) -> bool:
+    """선분이 차선 칠 근처에 있는지 본다 (선분 위 몇 점이 "칠 근처" 마스크 안인지).
+
+    사용처: detect_lanes() 안에서 Hough 선분마다.
+    입력: seg (x1, y1, x2, y2) px, near_paint 칠 마스크를 paint_side_px_ratio만큼 넓힌 마스크(bool),
+          cfg_lane(paint_sample_points 볼 점 개수, paint_min_fraction 칠 근처여야 하는 점 비율)
+    출력: True면 차선 후보로 남김
+    주의: Canny 선분은 칠의 가운데가 아니라 가장자리에 생기므로, 칠을 조금 넓힌 마스크로 확인한다.
+          연석·그림자·건물 모서리는 근처에 밝은 칠이 없어서 걸러진다. 흰 차의 차체 모서리는 통과할 수 있다.
+    """
+    x1, y1, x2, y2 = seg
+    t = np.linspace(0, 1, cfg_lane["paint_sample_points"])
+    xs = np.round(x1 + (x2 - x1) * t).astype(int)
+    ys = np.round(y1 + (y2 - y1) * t).astype(int)
+    return near_paint[ys, xs].mean() >= cfg_lane["paint_min_fraction"]
+
+
 def detect_lanes(frame_bgr: np.ndarray, cfg_camera: dict, cfg_lane: dict) -> dict:
     """한 프레임에서 내 차선의 왼쪽·오른쪽 차선을 찾는다.
 
@@ -76,6 +112,7 @@ def detect_lanes(frame_bgr: np.ndarray, cfg_camera: dict, cfg_lane: dict) -> dic
           그 선이 이쪽에서 저쪽으로 넘어가며 lane_offset_ratio가 +1 → -1(또는 반대)로 뒤집힌다 (실제로 선을 넘은 것).
           기울기 부호는 쓰지 않는다. 차 바로 앞을 지나는 선은 거의 수직이라 부호가 어느 쪽이든 될 수 있어서
           부호로 거르면 차선 이탈에 가장 중요한 선이 버려진다.
+          선분은 흰색·노란색 칠 가장자리인 것만 쓴다 (시내 도로의 연석·건물 모서리 오검출 방지).
     """
     img_h, img_w = frame_bgr.shape[:2]
     # 1) 윤곽선 찾기: 회색 → 흐림(노이즈 제거) → Canny
@@ -87,6 +124,10 @@ def detect_lanes(frame_bgr: np.ndarray, cfg_camera: dict, cfg_lane: dict) -> dic
     mask = np.zeros_like(edges)
     cv2.fillPoly(mask, [roi], 255)
     edges = cv2.bitwise_and(edges, mask)
+    # 칠 마스크를 side_px만큼 넓혀 "칠 근처"로 만든다 (선분은 칠 가장자리에 생기므로)
+    side_px = max(1, round(img_w * cfg_lane["paint_side_px_ratio"]))
+    paint = _paint_mask(frame_bgr, gray, mask, cfg_lane).astype(np.uint8)
+    near_paint = cv2.dilate(paint, np.ones((2 * side_px + 1, 2 * side_px + 1), np.uint8)) > 0
     # 3) 직선 선분 찾기
     segments = cv2.HoughLinesP(
         edges, rho=1, theta=np.pi / 180, threshold=cfg_lane["hough_threshold"],
@@ -101,6 +142,8 @@ def detect_lanes(frame_bgr: np.ndarray, cfg_camera: dict, cfg_lane: dict) -> dic
     for x1, y1, x2, y2 in segments:
         if x1 != x2 and abs((y2 - y1) / (x2 - x1)) < cfg_lane["min_abs_slope"]:
             continue  # 거의 수평인 선은 차선이 아님 (수직선 x1 == x2 는 통과)
+        if not _on_paint((x1, y1, x2, y2), near_paint, cfg_lane):
+            continue  # 흰색·노란색 칠이 아닌 윤곽선 (연석, 그림자, 건물·차 모서리)
         # 직선을 x = x1 + (y - y1)·dx/dy 로 연장 (차선은 세로에 가까워 y로 x를 구함)
         cands.append((x1 + (y_bottom - y1) * (x2 - x1) / (y2 - y1), (x1, y1, x2, y2)))
     # 5) 선분을 선 묶음으로 만들고, 내 차 위치 기준 왼쪽·오른쪽에서 가장 가까운 묶음만 고르기
