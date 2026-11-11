@@ -54,3 +54,34 @@ def test_roi_follows_vanishing_ratio():
     cam = dict(CFG["camera"], vanishing_x_ratio=0.6)
     roi = lane_roi_polygon(W, H, cam, CFG["lane"])
     assert (roi[1][0] + roi[2][0]) / 2 == int(W * 0.6)
+
+
+def test_picks_nearest_line_over_far_line():
+    """요약: 오른쪽에 가까운 선과 먼 선(옆 차로 너머)이 같이 있으면 가까운 선을 고르는지."""
+    img = _fake_road()
+    cv2.line(img, (1200, 700), (700, 430), (255, 255, 255), 8)  # 먼 선 (기울기 0.54, 아래 끝 x가 훨씬 오른쪽)
+    lanes = detect_lanes(img, CFG["camera"], CFG["lane"])
+    assert abs(_x_at(lanes["right"], 600) - 869) < 10
+
+
+def test_line_in_front_of_car_is_kept():
+    """요약: 차로 변경 중처럼 차 바로 앞(정면 x=640 근처)을 지나는 거의 수직인 선도 버리지 않는지."""
+    img = np.zeros((H, W, 3), dtype=np.uint8)
+    cv2.line(img, (300, 700), (600, 430), (255, 255, 255), 8)  # 왼쪽 차선
+    # 차 바로 앞, 소실점 x(640)를 가로지르는 선. 아래 끝(y=612)은 정면보다 약간 오른쪽
+    cv2.line(img, (650, 700), (630, 430), (255, 255, 255), 8)
+    lanes = detect_lanes(img, CFG["camera"], CFG["lane"])
+    assert lanes["right"] is not None
+    assert abs(_x_at(lanes["right"], 600) - (650 - 20 * 100 / 270)) < 10
+
+
+def test_dashed_line_pieces_merge():
+    """요약: 점선(조각 여러 개)도 한 선으로 묶여 원래 직선 위치에 맞는지."""
+    img = _fake_road(right=False)
+    for t0 in (0.0, 0.35, 0.7):  # 오른쪽 차선 (980,700)→(680,430)을 세 조각으로
+        t1 = t0 + 0.2
+        p0 = (int(980 - 300 * t0), int(700 - 270 * t0))
+        p1 = (int(980 - 300 * t1), int(700 - 270 * t1))
+        cv2.line(img, p0, p1, (255, 255, 255), 8)
+    lanes = detect_lanes(img, CFG["camera"], CFG["lane"])
+    assert abs(_x_at(lanes["right"], 600) - 869) < 10
