@@ -1,10 +1,20 @@
 """아찔한 순간 API 테스트. .env의 DATABASE_URL(로컬 teum DB)에 실제로 쓰고, 끝나면 지운다."""
 
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import pytest
+from dotenv import load_dotenv
+
+# PostgreSQL을 안 깐 팀원도 pytest가 돌게, DB 접속 정보가 없으면 이 파일만 건너뛴다
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+if not os.getenv("DATABASE_URL"):
+    pytest.skip("DATABASE_URL 없음 (DB 테스트 건너뜀)", allow_module_level=True)
+
+# 아래 import는 DB가 필요해서 건너뛰기 판단 뒤에 둔다
 from fastapi.testclient import TestClient
 
 from app.clip_recorder import ClipRecorder
