@@ -2,7 +2,8 @@
 
 camera:
   bonnet_ratio: 0.85        # 화면 위에서부터 이 비율까지만 사용 (아래는 본넷이라 제외)
-  center_x_ratio: 0.5       # 내 차 정면의 x 위치 (화면 폭 대비 비율, 카메라 중앙 보정값)
+  center_x_ratio: 0.5       # 내 차 정면의 x 위치 (화면 폭 대비, 화면 아래 높이 기준). 치우침 계산에 사용
+  vanishing_x_ratio: 0.5    # 소실점 x 위치 (화면 폭 대비, 카메라가 바라보는 방향). 관심 영역·좌우 구분에 사용
 
 # ---------- 차선 인식 (장혜민) ----------
 lane:
@@ -14,8 +15,39 @@ lane:
   hough_min_len_ratio: 0.03 # 직선으로 인정할 최소 길이 (화면 폭 대비)
   hough_max_gap_ratio: 0.03 # 같은 직선으로 이을 최대 끊김 (화면 폭 대비, 점선 차선 대응)
   min_abs_slope: 0.4        # 이보다 눕힌 선(|dy/dx| 작음)은 차선이 아니라고 봄 (그림자·가드레일 제거)
+  cluster_px_ratio: 0.05    # 화면 아래 끝 x가 이 간격(화면 폭 대비) 이내인 선분은 같은 선으로 묶음 (점선 조각 묶기, 이웃 차선과는 분리)
+  paint_white_contrast_min: 50  # 흰 칠로 볼 밝기 차이 (회색 0~255, 관심 영역 도로 밝기 중앙값보다 이만큼 밝아야. 연석·보도블록은 보통 이보다 덜 밝음 [추정])
+  yellow_h_min: 15          # 노란 칠 색상 범위 하한 (OpenCV HSV 색상 0~180, 노랑 ≈ 30)
+  yellow_h_max: 35          # 노란 칠 색상 범위 상한
+  yellow_s_min: 80          # 노란 칠 최소 채도 (0~255, 회색·흰색과 구분)
+  paint_side_px_ratio: 0.01 # 칠 마스크를 이만큼 넓혀 '칠 근처'로 봄 (화면 폭 대비, 640px에서 약 6px. Canny 선분은 칠 가장자리에 생김)
+  paint_sample_points: 5    # 선분마다 칠을 확인할 점 개수 (많을수록 정확하지만 느림)
+  paint_min_fraction: 0.6   # 선분 위 점 중 이 비율 이상이 칠 근처여야 차선 후보 (점선 끝·그림자 일부 허용)
   smooth_window_s: 0.5      # 차선 위치를 평균 낼 최근 시간 (초, 떨림 줄이기)
   hold_s: 0.3               # 차선을 놓쳐도 직전 값을 유지할 시간 (초, 점선 빈 구간 대응)
+  width_window_s: 1.0       # 차선 폭(좌우 x 차이) 중앙값을 낼 최근 시간 (초, 폭은 천천히 변하니 길게 봐도 됨)
+  estimate_max_s: 1.0       # 두 선을 마지막으로 함께 본 뒤 폭으로 반대쪽을 추정해도 되는 시간 (초, 차로 변경 중 선을 밟는 시간보다 넉넉히)
+  lane_change_match_ratio: 0.15  # 새 왼쪽(오른쪽) 선이 직전 오른쪽(왼쪽) 선과 차선 폭의 이 비율 이내면 같은 선이 넘어온 것 (한 프레임 이동량보다 크고 차선 폭보다 훨씬 작게)
+  lane_change_cooldown_s: 1.0    # 차로 변경을 감지한 뒤 다시 감지하지 않는 시간 (초, 같은 변경을 여러 번 세지 않게)
+
+# ---------- 카메라 보정 도구 (tools/calibrate_camera.py, 장혜민) ----------
+calibration:
+  min_points: 30            # 추천값을 내기 위한 최소 소실점 개수 (24fps 기준 약 1.3초 분량, 이보다 적으면 우연일 수 있음)
+  horizon_margin_ratio: 0.03 # 소실점보다 이만큼 아래부터 관심 영역 시작 (화면 높이 대비, 소실점 근처는 차선이 뭉개져서)
+  wide_roi_top_ratio: 0.35  # --wide-roi: 처음 보는 카메라라 관심 영역 윗변을 넉넉히 위로 (화면 높이 대비)
+  wide_bonnet_ratio: 1.0    # --wide-roi: 본넷 위치를 모르니 화면 맨 아래까지 사용
+  wide_roi_top_half_width_ratio: 0.3 # --wide-roi: 소실점 위치를 모르니 윗변을 넓게 (화면 폭 대비 반폭)
+
+# ---------- 차량 탐지 YOLO (장혜민) ----------
+detect:
+  weights_path: weights/yolo11n.pt  # YOLO 가중치 (backend 기준, COCO 사전학습 nano. *.pt는 커밋 금지)
+  score_min: 0.25           # 이보다 확신도가 낮은 박스는 버림 (ultralytics 기본값에서 시작, 개발용 영상으로만 조정)
+  iou: 0.7                  # 겹친 박스를 하나로 합치는 기준 (NMS, ultralytics 기본값)
+  agnostic_nms: true        # 클래스가 달라도 겹친 박스를 합침 (SUV를 car·truck로 동시에 잡아 박스가 2개 되는 것 방지)
+  imgsz: 640                # YOLO 입력 크기 (px, 학습 크기와 같게. 키우면 먼 차를 더 찾지만 느려짐)
+  device: null              # null이면 자동(GPU 있으면 GPU), "cpu" 또는 0(첫 GPU)으로 고정 가능
+  track: true               # 추적으로 차마다 track_id 부여 (TTC는 같은 차의 박스 폭 기록이 필요)
+  tracker: bytetrack.yaml   # 추적기 설정 (SPEC: ByteTrack, ultralytics 내장 파일)
 
 # ---------- 아찔한 순간 기록 (최상준) ----------
 nearmiss:
