@@ -41,3 +41,9 @@ def test_missing_lane_is_unavailable():
 def test_crossed_lanes_is_unavailable():
     """요약: 왼쪽 선이 오른쪽 선보다 오른쪽이면(잘못 찾음) unavailable."""
     assert lane_offset(_lanes(700, 300), W, CAM)["lane_status"] == "unavailable"
+
+
+def test_estimated_status():
+    """요약: 트래커가 한쪽을 추정했다고 표시하면 lane_status가 estimated, 값은 그대로 계산."""
+    lanes = dict(_lanes(300, 700), estimated=("right",))
+    assert lane_offset(lanes, W, CAM) == {"lane_offset_ratio": 0.0, "lane_status": "estimated"}

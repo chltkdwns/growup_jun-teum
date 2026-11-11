@@ -14,7 +14,7 @@ import numpy as np
 import yaml
 
 from app.lane.detect import detect_lanes, lane_roi_polygon
-from app.lane.offset import lane_offset
+from app.lane.offset import STATUS_ESTIMATED, lane_offset
 from app.lane.tracker import LaneTracker
 
 MS_PER_S = 1000
@@ -24,7 +24,7 @@ def draw_lanes(frame, lanes: dict, cfg_camera: dict, cfg_lane: dict):
     """차선·관심 영역·정면 위치를 프레임 위에 그린다.
 
     사용처: main()에서 매 프레임 호출 (확인용 화면).
-    입력: frame 원본 프레임, lanes detect_lanes() 결과, cfg_camera·cfg_lane
+    입력: frame 원본 프레임, lanes detect_lanes() 또는 LaneTracker.update() 결과(추정한 쪽은 옅게), cfg_camera·cfg_lane
     출력: 그림이 그려진 프레임 (원본은 바꾸지 않음)
     """
     out = frame.copy()
@@ -35,7 +35,11 @@ def draw_lanes(frame, lanes: dict, cfg_camera: dict, cfg_lane: dict):
     for side, color in (("left", (0, 255, 0)), ("right", (255, 0, 0))):
         if lanes[side] is not None:
             xb, yb, xt, yt = lanes[side]
-            cv2.line(out, (xb, yb), (xt, yt), color, 4)
+            if side in lanes.get("estimated", ()):
+                # 폭으로 추정한 선은 옅고 가늘게 (실제로 찾은 선과 구분)
+                cv2.line(out, (xb, yb), (xt, yt), tuple(c // 2 for c in color), 2)
+            else:
+                cv2.line(out, (xb, yb), (xt, yt), color, 4)
     return out
 
 
@@ -48,6 +52,8 @@ def draw_offset(frame, offset: dict, origin_px: tuple[int, int]):
     """
     ratio = offset["lane_offset_ratio"]
     text = "LANE N/A" if ratio is None else f"offset {ratio:+.2f}"
+    if offset["lane_status"] == STATUS_ESTIMATED:
+        text += " (est)"
     cv2.putText(frame, text, origin_px, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
 

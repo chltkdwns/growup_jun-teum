@@ -49,8 +49,8 @@ def test_horizontal_line_ignored():
     assert lanes == {"left": None, "right": None}
 
 
-def test_roi_follows_center_ratio():
-    """요약: 정면 위치(center_x_ratio)를 바꾸면 관심 영역 윗변도 같이 움직이는지."""
-    cam = dict(CFG["camera"], center_x_ratio=0.6)
+def test_roi_follows_vanishing_ratio():
+    """요약: 소실점 위치(vanishing_x_ratio)를 바꾸면 관심 영역 윗변도 같이 움직이는지."""
+    cam = dict(CFG["camera"], vanishing_x_ratio=0.6)
     roi = lane_roi_polygon(W, H, cam, CFG["lane"])
     assert (roi[1][0] + roi[2][0]) / 2 == int(W * 0.6)

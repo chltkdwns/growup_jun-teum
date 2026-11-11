@@ -5,6 +5,7 @@
 
 STATUS_OK = "ok"
 STATUS_UNAVAILABLE = "unavailable"  # 화면에 "차선 인식 불가"로 표시
+STATUS_ESTIMATED = "estimated"  # 한쪽 차선을 최근 차선 폭으로 추정해서 계산한 값 (LaneTracker)
 
 
 def lane_offset(lanes: dict, img_w: int, cfg_camera: dict) -> dict:
@@ -13,7 +14,7 @@ def lane_offset(lanes: dict, img_w: int, cfg_camera: dict) -> dict:
     사용처: 2단계(차선). 매 프레임 LaneTracker.update() 결과로 호출한다 (run_lane, run_lane_live).
     입력: lanes {"left": Line|None, "right": Line|None} (Line = x_bottom, y_bottom, x_top, y_top px),
           img_w 프레임 폭(px), cfg_camera(center_x_ratio 정면 위치)
-    출력: {"lane_offset_ratio": float|None, "lane_status": "ok"|"unavailable"}
+    출력: {"lane_offset_ratio": float|None, "lane_status": "ok"|"estimated"|"unavailable"}
           lane_offset_ratio: 0 = 정중앙, -1 = 왼쪽 선 위, +1 = 오른쪽 선 위, ±1 초과 = 선을 넘음 (단위 없음)
     주의: 화면 맨 아래(y_bottom) 높이에서 비교한다. 좌우 차선이 둘 다 있어야 계산한다.
           m 단위가 아니라 화면 속 차선 폭 대비 비율이라 차로 폭 가정이 필요 없다.
@@ -27,4 +28,6 @@ def lane_offset(lanes: dict, img_w: int, cfg_camera: dict) -> dict:
         return {"lane_offset_ratio": None, "lane_status": STATUS_UNAVAILABLE}
     lane_center_x_px = (left[0] + right[0]) / 2
     car_x_px = img_w * cfg_camera["center_x_ratio"]
-    return {"lane_offset_ratio": (car_x_px - lane_center_x_px) / half_w_px, "lane_status": STATUS_OK}
+    # LaneTracker가 한쪽을 폭으로 추정했으면 표시해 둔다 (detect_lanes() 결과에는 이 키가 없음)
+    status = STATUS_ESTIMATED if lanes.get("estimated") else STATUS_OK
+    return {"lane_offset_ratio": (car_x_px - lane_center_x_px) / half_w_px, "lane_status": status}

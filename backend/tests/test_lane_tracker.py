@@ -1,7 +1,7 @@
 """LaneTracker 테스트: 촬영 시각(t_s)을 직접 넣어 시간 기준 동작을 확인한다."""
 from app.lane.tracker import LaneTracker
 
-CFG_LANE = {"smooth_window_s": 0.5, "hold_s": 0.3}
+CFG_LANE = {"smooth_window_s": 0.5, "hold_s": 0.3, "width_window_s": 1.0, "estimate_max_s": 1.0}
 NONE = {"left": None, "right": None}
 
 
@@ -41,3 +41,56 @@ def test_old_value_drops_out_of_window():
     tr.update(_left(100, 300), 0.0)
     out = tr.update(_left(200, 400), 0.6)
     assert out["left"] == (200, 600, 400, 400)
+
+
+def _both(xl: int, xr: int) -> dict:
+    """요약: 좌우가 다 보이는 결과. 위쪽 x는 아래쪽에서 각각 +100, -100 (위 폭 = 아래 폭 - 200)."""
+    return {"left": (xl, 600, xl + 100, 400), "right": (xr, 600, xr - 100, 400)}
+
+
+def test_both_lanes_not_estimated():
+    """요약: 좌우 다 보이면 추정하지 않음."""
+    out = LaneTracker(CFG_LANE).update(_both(100, 500), 0.0)
+    assert out["estimated"] == ()
+
+
+def test_missing_right_estimated_from_width():
+    """요약: 오른쪽만 놓치면 왼쪽 + 기억한 폭(아래 400, 위 200)으로 추정. hold보다 추정이 우선."""
+    tr = LaneTracker(CFG_LANE)
+    tr.update(_both(100, 500), 0.0)
+    out = tr.update({"left": (150, 600, 250, 400), "right": None}, 0.1)  # hold 시간 안이지만 추정 사용
+    assert out["estimated"] == ("right",)
+    left = out["left"]  # 평균 낸 왼쪽 (125, 225)
+    assert out["right"] == (left[0] + 400, 600, left[2] + 200, 400)
+
+
+def test_missing_left_estimated_symmetric():
+    """요약: 왼쪽만 놓치면 오른쪽 - 폭으로 추정."""
+    tr = LaneTracker(CFG_LANE)
+    tr.update(_both(100, 500), 0.0)
+    out = tr.update({"left": None, "right": (500, 600, 400, 400)}, 0.1)
+    assert out["estimated"] == ("left",)
+    assert out["left"] == (100, 600, 200, 400)
+
+
+def test_no_estimate_after_estimate_max():
+    """요약: 두 선을 함께 본 지 estimate_max_s(1초)가 넘으면 추정하지 않고, hold도 지나 None."""
+    tr = LaneTracker(CFG_LANE)
+    tr.update(_both(100, 500), 0.0)
+    out = tr.update({"left": (100, 600, 200, 400), "right": None}, 1.5)
+    assert out["estimated"] == () and out["right"] is None
+
+
+def test_no_estimate_without_width():
+    """요약: 좌우를 함께 본 적이 없으면 폭을 몰라 추정하지 않음."""
+    out = LaneTracker(CFG_LANE).update({"left": (100, 600, 200, 400), "right": None}, 0.0)
+    assert out["estimated"] == () and out["right"] is None
+
+
+def test_width_uses_median():
+    """요약: 폭 기록 중 튀는 값 하나가 있어도 중앙값(400)을 쓴다."""
+    tr = LaneTracker(CFG_LANE)
+    for t, xr in ((0.0, 500), (0.1, 500), (0.2, 900)):
+        tr.update({"left": (100, 600, 200, 400), "right": (xr, 600, xr - 100, 400)}, t)
+    out = tr.update({"left": (100, 600, 200, 400), "right": None}, 0.3)
+    assert out["right"][0] == out["left"][0] + 400
