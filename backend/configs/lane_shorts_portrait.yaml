@@ -31,3 +31,14 @@ calibration:
   wide_roi_top_ratio: 0.35  # --wide-roi: 처음 보는 카메라라 관심 영역 윗변을 넉넉히 위로 (화면 높이 대비)
   wide_bonnet_ratio: 1.0    # --wide-roi: 본넷 위치를 모르니 화면 맨 아래까지 사용
   wide_roi_top_half_width_ratio: 0.3 # --wide-roi: 소실점 위치를 모르니 윗변을 넓게 (화면 폭 대비 반폭)
+
+# ---------- 차량 탐지 YOLO (장혜민) ----------
+detect:
+  weights_path: weights/yolo11n.pt  # YOLO 가중치 (backend 기준, COCO 사전학습 nano. *.pt는 커밋 금지)
+  score_min: 0.25           # 이보다 확신도가 낮은 박스는 버림 (ultralytics 기본값에서 시작, 개발용 영상으로만 조정)
+  iou: 0.7                  # 겹친 박스를 하나로 합치는 기준 (NMS, ultralytics 기본값)
+  agnostic_nms: true        # 클래스가 달라도 겹친 박스를 합침 (SUV를 car·truck로 동시에 잡아 박스가 2개 되는 것 방지)
+  imgsz: 640                # YOLO 입력 크기 (px, 학습 크기와 같게. 키우면 먼 차를 더 찾지만 느려짐)
+  device: null              # null이면 자동(GPU 있으면 GPU), "cpu" 또는 0(첫 GPU)으로 고정 가능
+  track: true               # 추적으로 차마다 track_id 부여 (TTC는 같은 차의 박스 폭 기록이 필요)
+  tracker: bytetrack.yaml   # 추적기 설정 (SPEC: ByteTrack, ultralytics 내장 파일)
