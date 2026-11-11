@@ -38,6 +38,12 @@ calibration:
   wide_bonnet_ratio: 1.0    # --wide-roi: 본넷 위치를 모르니 화면 맨 아래까지 사용
   wide_roi_top_half_width_ratio: 0.3 # --wide-roi: 소실점 위치를 모르니 윗변을 넓게 (화면 폭 대비 반폭)
 
+# ---------- 앞차 정하기 (장혜민) ----------
+front_car:
+  default_lane_half_width_ratio: 0.35  # 차선을 못 찾을 때 쓸 기본 차선의 아래쪽 반폭 (화면 폭 대비. 개발용 highway 영상 차선 폭 289/406px ≈ 0.71의 절반 [추정])
+  switch_hold_s: 0.3        # 다른 차가 이 시간(초) 이상 계속 1등이어야 앞차를 바꿈 (경계에 걸친 차 때문에 앞차가 깜빡이는 것 방지. 시내 영상에서 반복 바뀜 대부분이 0.5초 이내)
+  lost_hold_s: 0.3          # 앞차가 탐지에서 사라져도 이 시간(초)은 마지막 박스로 유지 (가림·탐지 누락 몇 프레임 대응, 트래커 hold_s와 같은 값)
+
 # ---------- 차량 탐지 YOLO (장혜민) ----------
 detect:
   weights_path: weights/yolo11n.pt  # YOLO 가중치 (backend 기준, COCO 사전학습 nano. *.pt는 커밋 금지)
