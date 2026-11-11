@@ -5,6 +5,7 @@
 
 화면: 노란 사다리꼴 = 관심 영역, 초록 = 왼쪽 차선, 파랑 = 오른쪽 차선, 빨간 세로선 = 내 차 정면
       왼쪽 아래 글자 = 차선 중앙 대비 치우침 비율(lane_offset_ratio) 또는 "LANE N/A"(차선 인식 불가)
+      그 위 노란 글자 = 차로 변경 감지 후 잠깐 "LANE CHANGE ->"(오른쪽) / "<- LANE CHANGE"(왼쪽)
 """
 import argparse
 from pathlib import Path
@@ -18,6 +19,8 @@ from app.lane.offset import STATUS_ESTIMATED, lane_offset
 from app.lane.tracker import LaneTracker
 
 MS_PER_S = 1000
+LANE_CHANGE_SHOW_S = 1.0  # 차로 변경 글자를 화면에 남겨 둘 시간 (초, 확인용 화면 전용)
+LANE_CHANGE_TEXT = {"right": "LANE CHANGE ->", "left": "<- LANE CHANGE"}
 
 
 def draw_lanes(frame, lanes: dict, cfg_camera: dict, cfg_lane: dict):
@@ -61,7 +64,7 @@ def main() -> None:
     """영상 → 프레임마다 차선 인식 → 그린 영상 저장 + 차선을 찾은 비율 출력.
 
     입력: --video 영상 경로, --out 결과 영상 경로, --config 설정 파일
-    출력: 결과 영상 파일, 콘솔에 왼쪽/오른쪽 차선 검출 비율, 치우침 비율 범위와 차선 인식 불가 비율
+    출력: 결과 영상 파일, 콘솔에 왼쪽/오른쪽 차선 검출 비율, 치우침 비율 범위, 차선 인식 불가 비율, 차로 변경 감지 시각
     주의: 결과 영상은 outputs/ 아래에 둔다 (커밋 금지).
     """
     p = argparse.ArgumentParser()
@@ -81,6 +84,7 @@ def main() -> None:
 
     tracker = LaneTracker(cfg["lane"])
     offsets = []
+    changes = []  # (촬영 시각 s, 프레임 번호, 방향)
     n = n_left = n_right = 0
     while True:
         ok, frame = cap.read()
@@ -88,10 +92,16 @@ def main() -> None:
             break
         lanes = detect_lanes(frame, cfg["camera"], cfg["lane"])
         # 치우침은 실시간 모드와 같게 트래커 적용 후 차선으로 구한다 (촬영 시각 = 영상 안의 시각)
-        smooth = tracker.update(lanes, cap.get(cv2.CAP_PROP_POS_MSEC) / MS_PER_S)
+        t_s = cap.get(cv2.CAP_PROP_POS_MSEC) / MS_PER_S
+        smooth = tracker.update(lanes, t_s)
         offset = lane_offset(smooth, w, cfg["camera"])
         out = draw_lanes(frame, smooth, cfg["camera"], cfg["lane"])
         draw_offset(out, offset, (10, h - 20))
+        if smooth["lane_change"] is not None:
+            changes.append((t_s, n, smooth["lane_change"]))
+        if changes and t_s - changes[-1][0] <= LANE_CHANGE_SHOW_S:
+            cv2.putText(out, LANE_CHANGE_TEXT[changes[-1][2]], (10, h - 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         writer.write(out)
         offsets.append(offset["lane_offset_ratio"])
         n += 1
@@ -104,6 +114,7 @@ def main() -> None:
     if ok_vals.size:
         print(f"치우침 비율 최소 {ok_vals.min():+.2f} | 최대 {ok_vals.max():+.2f} | 평균 {ok_vals.mean():+.2f}")
     print(f"차선 인식 불가 {1 - ok_vals.size / max(n, 1):.0%} (트래커 적용 후 기준)")
+    print(f"차로 변경 감지 {len(changes)}회: " + ", ".join(f"{t:.2f}초(#{i}, {d})" for t, i, d in changes))
 
 
 if __name__ == "__main__":
