@@ -17,23 +17,26 @@ import cv2
 import yaml
 
 from app.lane.detect import detect_lanes
+from app.lane.offset import lane_offset
 from app.lane.tracker import LaneTracker
-from tools.run_lane import draw_lanes
+from tools.run_lane import draw_lanes, draw_offset
 
 QUIT_KEY = ord("q")
 MS_PER_S = 1000
 FALLBACK_FPS = 30  # 카메라가 fps를 알려주지 않을 때 저장 영상에 쓸 값
 
 
-def process_frame(frame, tracker: LaneTracker, t_s: float, cfg: dict) -> tuple[dict, dict]:
-    """한 프레임의 차선을 찾고 트래커로 부드럽게 만든다.
+def process_frame(frame, tracker: LaneTracker, t_s: float, cfg: dict) -> tuple[dict, dict, dict]:
+    """한 프레임의 차선을 찾고 트래커로 부드럽게 만든 뒤 치우침을 구한다.
 
     사용처: 2단계(차선). main()의 프레임 반복문에서 매 프레임 호출 (서버 수신 루프에서도 같은 순서로 쓴다).
     입력: frame BGR 프레임, tracker 영상 하나에 하나인 LaneTracker, t_s 촬영 시각(s), cfg 전체 설정
-    출력: (raw 트래커 적용 전 결과, smooth 적용 후 결과), 둘 다 {"left": Line|None, "right": Line|None}
+    출력: (raw 트래커 적용 전 결과, smooth 적용 후 결과, offset lane_offset() 결과)
+          raw·smooth는 {"left": Line|None, "right": Line|None}
     """
     raw = detect_lanes(frame, cfg["camera"], cfg["lane"])
-    return raw, tracker.update(raw, t_s)
+    smooth = tracker.update(raw, t_s)
+    return raw, smooth, lane_offset(smooth, frame.shape[1], cfg["camera"])
 
 
 def main() -> None:
@@ -91,8 +94,9 @@ def main() -> None:
         t_s = cap.get(cv2.CAP_PROP_POS_MSEC) / MS_PER_S if is_file else time.perf_counter()
 
         t0_s = time.perf_counter()
-        raw, smooth = process_frame(frame, tracker, t_s, cfg)
+        raw, smooth, offset = process_frame(frame, tracker, t_s, cfg)
         out = draw_lanes(frame, smooth, cfg["camera"], cfg["lane"])
+        draw_offset(out, offset, (10, out.shape[0] - 20))
         proc_ms.append((time.perf_counter() - t0_s) * MS_PER_S)
 
         now_s = time.perf_counter()
