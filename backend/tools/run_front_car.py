@@ -16,7 +16,7 @@ import yaml
 
 from app.detect.vehicles import detect_vehicles, load_detector
 from app.lane.detect import detect_lanes
-from app.lane.front_car import default_lanes, select_front_car
+from app.lane.front_car import FrontCarTracker, default_lanes, select_front_car
 from app.lane.tracker import LaneTracker
 from tools.run_lane import draw_lanes
 
@@ -49,7 +49,7 @@ def main() -> None:
     """영상 → 프레임마다 차선(트래커)·탐지·앞차 → 그린 영상 저장 + 요약 출력.
 
     입력: --video 영상 경로, --out 결과 영상 경로, --config 설정 파일
-    출력: 결과 영상, 콘솔에 앞차 있음 비율, 앞차가 바뀐 횟수·시각, 기본 차선 영역 사용 비율, 처리 ms
+    출력: 결과 영상(앞차는 FrontCarTracker 적용 후), 콘솔에 앞차 있음 비율, 앞차가 바뀐 횟수·시각, 기본 차선 영역 사용 비율, 처리 ms
     주의: 처리 ms는 차선+탐지+앞차 합계이고 첫 프레임(모델 준비)은 뺀다.
     """
     p = argparse.ArgumentParser()
@@ -62,6 +62,7 @@ def main() -> None:
     cam, lane_cfg, front_cfg = cfg["camera"], cfg["lane"], cfg["front_car"]
     model = load_detector(cfg["detect"])
     tracker = LaneTracker(lane_cfg)
+    front_tracker = FrontCarTracker(front_cfg)
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
         raise SystemExit(f"영상을 열 수 없음: {args.video}")
@@ -80,7 +81,8 @@ def main() -> None:
         t0_s = time.perf_counter()
         lanes = tracker.update(detect_lanes(frame, cam, lane_cfg), t_s)
         dets = detect_vehicles(frame, model, cam, cfg["detect"], t_s)
-        front = select_front_car(dets, lanes, w, h, cam, lane_cfg, front_cfg)
+        candidate = select_front_car(dets, lanes, w, h, cam, lane_cfg, front_cfg)
+        front = front_tracker.update(candidate, dets, t_s, lanes["lane_change"])  # 앞차 깜빡임 방지 (시간 기준 유지)
         proc_ms.append((time.perf_counter() - t0_s) * MS_PER_S)
 
         used_default = lanes["left"] is None or lanes["right"] is None

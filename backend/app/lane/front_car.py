@@ -68,3 +68,74 @@ def select_front_car(
         if x_on_line(lanes["left"], y2) <= x_c <= x_on_line(lanes["right"], y2) and y2 > best_y:
             best, best_y = d, y2
     return None if best is None else dict(best, lane_source=source)
+
+
+class FrontCarTracker:
+    """앞차가 프레임마다 바뀌지 않게, 새 차가 switch_hold_s초 이상 계속 1등일 때만 앞차를 바꾼다.
+
+    사용처: 2단계(앞차). 매 프레임 select_front_car() 바로 뒤에서 update()를 호출한다.
+    주의: 시간은 촬영 시각(t_s) 기준이다. 차를 같은 차로 알아보려고 track_id를 쓰므로 탐지 추적(track)이 켜져 있어야 한다.
+          클래스로 만든 이유: 지금 앞차와 "바꿀 후보가 언제부터 1등이었는지"를 프레임 사이에 기억해야 해서.
+          유지 중인 앞차가 내 차선 밖으로 나가도 최대 switch_hold_s초는 앞차로 남는다.
+          단, 차로 변경을 감지한 프레임에는 기다리지 않고 바로 바꾼다 (내 차선 자체가 바뀌었으므로).
+          차선 없음(default) 구간도 같은 규칙을 쓴다. 기본 영역이 잠깐 엉뚱한 차를 1등으로 만들어도
+          switch_hold_s 안에 차선이 돌아오면 교체되지 않는다. 규칙을 하나로 두어 설명을 단순하게 했다.
+    """
+
+    def __init__(self, cfg_front: dict) -> None:
+        """설정값을 읽고 앞차 기록을 비운다.
+
+        사용처: 영상(또는 카메라) 하나를 시작할 때 한 번.
+        입력: cfg_front config의 front_car 섹션 (switch_hold_s 교체 전 대기 시간(s), lost_hold_s 사라진 앞차 유지 시간(s))
+        """
+        self.switch_hold_s = cfg_front["switch_hold_s"]
+        self.lost_hold_s = cfg_front["lost_hold_s"]
+        self.current = None  # 지금 앞차 dict (select_front_car 결과 형식)
+        self.last_seen_s = None  # 지금 앞차가 탐지에 마지막으로 보인 촬영 시각
+        self.pending_id = None  # 바꿀 후보의 track_id (후보가 "앞차 없음"이면 None)
+        self.pending_since_s = None  # 그 후보가 1등이 된 촬영 시각
+
+    def update(self, candidate: dict | None, dets: list[dict], t_s: float, lane_change: str | None = None) -> dict | None:
+        """이번 프레임 1등 후보를 받아, 유지 규칙을 적용한 앞차를 돌려준다.
+
+        사용처: 2단계(앞차). 매 프레임 select_front_car() 결과로 호출한다.
+        입력: candidate select_front_car() 결과(없으면 None), dets 이번 프레임 detect_vehicles() 전체 결과, t_s 촬영 시각(s),
+              lane_change LaneTracker.update() 결과의 "lane_change" (차로 변경 감지 프레임에 "left"|"right")
+        출력: 앞차 dict(+ "front_changed": 이번 프레임에 앞차가 바뀌었으면 True) 또는 앞차 없음 None
+        주의: 규칙 순서
+              0) 차로 변경을 감지한 프레임이면 후보를 바로 쓴다.
+              1) 지금 앞차가 없으면 후보를 바로 쓴다.
+              2) 후보가 지금 앞차와 같은 차면 박스를 최신으로 바꿔 유지한다.
+              3) 지금 앞차가 탐지에서 사라졌으면 lost_hold_s초까지 마지막 박스로 유지하고, 넘으면 후보로 바꾼다.
+              4) 다른 후보(또는 "앞차 없음")가 switch_hold_s초 이상 계속 1등이면 바꾸고, 그 전에는 지금 앞차를 유지한다.
+        """
+        cand_id = None if candidate is None else candidate["track_id"]
+        cur_id = None if self.current is None else self.current["track_id"]
+        # 지금 앞차가 이번 프레임 탐지에 있는지 (있으면 최신 박스를 쓰기 위해)
+        cur_now = next((d for d in dets if cur_id is not None and d["track_id"] == cur_id), None)
+        if cur_now is not None:
+            self.last_seen_s = t_s
+
+        if lane_change is not None or self.current is None or cand_id == cur_id:
+            take_candidate = True  # 0), 1), 2)
+        elif cur_now is None and t_s - self.last_seen_s > self.lost_hold_s:
+            take_candidate = True  # 3) 사라진 지 오래됨
+        else:
+            # 4) 다른 후보가 언제부터 1등이었는지 기록하고, 충분히 오래됐을 때만 바꾼다
+            if self.pending_since_s is None or cand_id != self.pending_id:
+                self.pending_id, self.pending_since_s = cand_id, t_s
+            take_candidate = t_s - self.pending_since_s >= self.switch_hold_s
+
+        if take_candidate:
+            new = candidate
+            self.pending_id, self.pending_since_s = None, None
+            if candidate is not None:
+                self.last_seen_s = t_s
+        elif cur_now is not None:
+            new = dict(cur_now, lane_source=self.current["lane_source"])  # 유지, 박스만 최신으로
+        else:
+            new = self.current  # 사라졌지만 lost_hold_s 안: 마지막 박스로 유지
+
+        new_id = None if new is None else new["track_id"]
+        self.current = new
+        return None if new is None else dict(new, front_changed=new_id != cur_id)

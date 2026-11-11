@@ -3,7 +3,12 @@ from pathlib import Path
 
 import yaml
 
-from app.lane.front_car import default_lanes, select_front_car, x_on_line
+from app.lane.front_car import (
+    FrontCarTracker,
+    default_lanes,
+    select_front_car,
+    x_on_line,
+)
 
 CFG = yaml.safe_load((Path(__file__).parents[1] / "config.yaml").read_text(encoding="utf-8"))
 W, H = 1280, 720
@@ -72,3 +77,69 @@ def test_default_lane_used_when_lane_missing():
     assert _select([center])["lane_source"] == "lane"
     dl = default_lanes(W, H, CFG["camera"], CFG["lane"], CFG["front_car"])
     assert dl["left"][0] < W * CFG["camera"]["center_x_ratio"] < dl["right"][0]
+
+
+TRACK_CFG = {"switch_hold_s": 0.3, "lost_hold_s": 0.3}
+
+
+def test_tracker_adopts_first_candidate():
+    """요약: 앞차가 없을 때는 후보를 바로 쓰고 front_changed=True."""
+    a = _det(560, 480, 720, 560, track_id=1)
+    out = FrontCarTracker(TRACK_CFG).update(dict(a, lane_source="lane"), [a], 0.0)
+    assert out["track_id"] == 1 and out["front_changed"] is True
+
+
+def test_tracker_ignores_short_flicker():
+    """요약: 다른 차가 0.3초 미만으로만 1등이면 앞차를 유지."""
+    a, b = _det(560, 480, 720, 560, track_id=1), _det(500, 500, 700, 580, track_id=2)
+    tr = FrontCarTracker(TRACK_CFG)
+    tr.update(dict(a, lane_source="lane"), [a, b], 0.0)
+    assert tr.update(dict(b, lane_source="lane"), [a, b], 0.1)["track_id"] == 1
+    assert tr.update(dict(b, lane_source="lane"), [a, b], 0.2)["track_id"] == 1
+    out = tr.update(dict(a, lane_source="lane"), [a, b], 0.3)  # 다시 a가 1등 → 대기 기록도 초기화
+    assert out["track_id"] == 1 and out["front_changed"] is False
+
+
+def test_tracker_switches_after_hold():
+    """요약: 다른 차가 0.3초 이상 계속 1등이면 교체 (경계 0.3초 포함)."""
+    a, b = _det(560, 480, 720, 560, track_id=1), _det(500, 500, 700, 580, track_id=2)
+    tr = FrontCarTracker(TRACK_CFG)
+    tr.update(dict(a, lane_source="lane"), [a, b], 0.0)
+    tr.update(dict(b, lane_source="lane"), [a, b], 0.1)
+    out = tr.update(dict(b, lane_source="lane"), [a, b], 0.4)
+    assert out["track_id"] == 2 and out["front_changed"] is True
+
+
+def test_tracker_same_car_box_refreshed():
+    """요약: 같은 차가 계속 1등이면 박스를 최신 값으로 바꾼다."""
+    a1, a2 = _det(560, 480, 720, 560, track_id=1), _det(550, 490, 730, 570, track_id=1)
+    tr = FrontCarTracker(TRACK_CFG)
+    tr.update(dict(a1, lane_source="lane"), [a1], 0.0)
+    assert tr.update(dict(a2, lane_source="lane"), [a2], 0.1)["box_xyxy_px"] == a2["box_xyxy_px"]
+
+
+def test_tracker_keeps_box_while_lost_then_drops():
+    """요약: 앞차가 탐지에서 사라지면 0.3초까지 마지막 박스로 유지하고, 넘으면 후보(없으면 None)로."""
+    a = _det(560, 480, 720, 560, track_id=1)
+    tr = FrontCarTracker(TRACK_CFG)
+    tr.update(dict(a, lane_source="lane"), [a], 0.0)
+    assert tr.update(None, [], 0.2)["track_id"] == 1
+    assert tr.update(None, [], 0.31) is None
+
+
+def test_tracker_keeps_out_of_lane_car_briefly():
+    """요약: 앞차가 보이지만 내 차선 밖으로 나가면(후보 None) 0.3초 동안은 유지 후 None."""
+    a = _det(560, 480, 720, 560, track_id=1)
+    tr = FrontCarTracker(TRACK_CFG)
+    tr.update(dict(a, lane_source="lane"), [a], 0.0)
+    assert tr.update(None, [a], 0.1)["track_id"] == 1
+    assert tr.update(None, [a], 0.4) is None
+
+
+def test_tracker_switches_immediately_on_lane_change():
+    """요약: 차로 변경을 감지한 프레임에는 0.3초를 기다리지 않고 새 차선의 앞차로 바로 바꾼다."""
+    a, b = _det(560, 480, 720, 560, track_id=1), _det(600, 450, 680, 500, track_id=2)
+    tr = FrontCarTracker(TRACK_CFG)
+    tr.update(dict(a, lane_source="lane"), [a, b], 0.0)
+    out = tr.update(dict(b, lane_source="lane"), [a, b], 0.1, lane_change="right")
+    assert out["track_id"] == 2 and out["front_changed"] is True
