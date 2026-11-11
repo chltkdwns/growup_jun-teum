@@ -39,6 +39,10 @@ calibration:
   wide_bonnet_ratio: 1.0    # --wide-roi: 본넷 위치를 모르니 화면 맨 아래까지 사용
   wide_roi_top_half_width_ratio: 0.3 # --wide-roi: 소실점 위치를 모르니 윗변을 넓게 (화면 폭 대비 반폭)
 
+# ---------- 앞차 정하기 (장혜민) ----------
+front_car:
+  default_lane_half_width_ratio: 0.35  # 차선을 못 찾을 때 쓸 기본 차선의 아래쪽 반폭 (화면 폭 대비. 개발용 highway 영상 차선 폭 289/406px ≈ 0.71의 절반 [추정])
+
 # ---------- 차량 탐지 YOLO (장혜민) ----------
 detect:
   weights_path: weights/yolo11n.pt  # YOLO 가중치 (backend 기준, COCO 사전학습 nano. *.pt는 커밋 금지)
