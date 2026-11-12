@@ -55,6 +55,26 @@ detect:
   track: true               # 추적으로 차마다 track_id 부여 (TTC는 같은 차의 박스 폭 기록이 필요)
   tracker: bytetrack.yaml   # 추적기 설정 (SPEC: ByteTrack, ultralytics 내장 파일)
 
+# ---------- 브레이크등 인식 (성아영) ----------
+brake:
+  weights_path: weights/brake_v1.pt  # 브레이크등 YOLO 가중치 (backend 기준, Colab 학습 best.pt. *.pt는 커밋 금지)
+  score_min: 0.3            # 이보다 확신도가 낮은 브레이크등 모델 박스는 버림
+  on_score_min: 0.5         # "켜짐"은 이 확신도 이상일 때만 인정 (꺼짐을 켜짐으로 착각하는 오경보 31%를 줄이려고 높임)
+  imgsz: 640                # 모델 입력 크기 (px, 학습 크기와 같게)
+  device: null              # null이면 자동(GPU 있으면 GPU), "cpu" 또는 0(첫 GPU)
+  match_iou_min: 0.3        # 앞차 박스와 이만큼(겹친 넓이 비율 0~1) 이상 겹쳐야 같은 차로 봄
+  third_lamp_region_ratio: [0.30, 0.00, 0.70, 0.30]  # 보조 제동등 영역 [x1, y1, x2, y2] (차 박스 대비, 위쪽 가운데)
+  side_lamp_y_ratio: [0.25, 0.65]  # 좌우 등 영역 세로 범위 [위, 아래] (차 박스 대비)
+  side_lamp_w_ratio: 0.30   # 좌우 등 영역 가로 폭 (차 박스 대비, 양 끝에서)
+  red_s_min: 100            # 빨강으로 셀 최소 채도 (HSV 0~255, 흰 차체·번호판 조명 제외)
+  red_v_min: 150            # 빨강으로 셀 최소 밝기 (HSV 0~255, 켜진 등만)
+  third_red_min: 0.015      # 보조 제동등 영역 빨강 비율이 이 이상이면 "보조 제동등 켜짐" (개발 데모: 브레이크 0.027 이상, 미등 0.001 이하 [추정])
+  rise_ratio: 1.5           # 좌우 등 빨강 비율이 평소의 이 배 이상이면 "밝아짐"
+  rise_abs_min: 0.02        # 그리고 평소보다 이만큼(비율) 이상 늘어야 "밝아짐" (어두운 장면의 작은 변화 무시)
+  baseline_window_s: 1.0    # "평소 밝기"를 낼 최근 시간 (초)
+  baseline_min_count: 3     # 평소 밝기를 믿으려면 필요한 최소 프레임 수 (처음 몇 프레임은 비교 안 함)
+  vote_window_s: 0.2        # 최근 이 시간(초) 판단의 다수결로 최종 켜짐/꺼짐 (한두 프레임 오판 제거)
+
 # ---------- 아찔한 순간 기록 (최상준) ----------
 nearmiss:
   pre_s: 5.0                # 경고 시작 전 저장 시간 (초, 실시간은 링 버퍼로 보관)
