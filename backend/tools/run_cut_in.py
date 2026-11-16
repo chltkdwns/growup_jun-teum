@@ -12,7 +12,7 @@ from pathlib import Path
 import cv2
 import yaml
 
-from app.detect.vehicles import detect_vehicles, load_detector
+from app.detect.vehicles import ClassVoter, detect_vehicles, load_detector
 from app.lane.cut_in import CutInDetector
 from app.lane.detect import detect_lanes
 from app.lane.front_car import FrontCarTracker, select_front_car
@@ -42,6 +42,7 @@ def main() -> None:
     model = load_detector(cfg["detect"])
     lane_tracker, front_tracker = LaneTracker(lane_cfg), FrontCarTracker(front_cfg)
     cut_in_detector = CutInDetector(cfg["cut_in"])
+    voter = ClassVoter(cfg["detect"])
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
         raise SystemExit(f"영상을 열 수 없음: {args.video}")
@@ -58,7 +59,7 @@ def main() -> None:
         t_s = cap.get(cv2.CAP_PROP_POS_MSEC) / MS_PER_S
         t0_s = time.perf_counter()
         lanes = lane_tracker.update(detect_lanes(frame, cam, lane_cfg), t_s)
-        dets = detect_vehicles(frame, model, cam, cfg["detect"], t_s)
+        dets = voter.update(detect_vehicles(frame, model, cam, cfg["detect"], t_s), t_s)  # 같은 차 클래스 고정
         candidate = select_front_car(dets, lanes, w, h, cam, lane_cfg, front_cfg)
         front = front_tracker.update(candidate, dets, t_s, lanes["lane_change"])
         cut_in = cut_in_detector.update(dets, lanes, front, t_s, h, lanes["lane_change"])

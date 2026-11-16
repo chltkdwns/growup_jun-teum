@@ -52,7 +52,7 @@ cut_in:
 
 # ---------- 차량 탐지 YOLO (장혜민) ----------
 detect:
-  weights_path: weights/yolo11n.pt  # YOLO 가중치 (backend 기준, COCO 사전학습 nano. *.pt는 커밋 금지)
+  weights_path: weights/yolo11s.pt  # YOLO 가중치 (backend 기준, COCO 사전학습 small. *.pt는 커밋 금지. 2026-11-16 yolo11n·yolo26n·yolo11s 비교에서 주행 중 오토바이 탐지가 가장 나아서 교체)
   score_min: 0.25           # 이보다 확신도가 낮은 박스는 버림 (ultralytics 기본값에서 시작, 개발용 영상으로만 조정)
   iou: 0.7                  # 겹친 박스를 하나로 합치는 기준 (NMS, ultralytics 기본값)
   agnostic_nms: true        # 클래스가 달라도 겹친 박스를 합침 (SUV를 car·truck로 동시에 잡아 박스가 2개 되는 것 방지)
@@ -60,6 +60,7 @@ detect:
   device: null              # null이면 자동(GPU 있으면 GPU), "cpu" 또는 0(첫 GPU)으로 고정 가능
   track: true               # 추적으로 차마다 track_id 부여 (TTC는 같은 차의 박스 폭 기록이 필요)
   tracker: bytetrack.yaml   # 추적기 설정 (SPEC: ByteTrack, ultralytics 내장 파일)
+  class_vote_window_s: 1.0 # 같은 차(track_id)의 클래스를 이 시간(초) 판정의 다수결로 고정 (SUV car/truck, 먼 오토바이 car/motorcycle 오락가락 방지. 초기값)
 
 # ---------- 브레이크등 인식 (성아영) ----------
 brake:

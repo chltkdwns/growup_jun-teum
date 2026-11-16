@@ -84,3 +84,49 @@ def detect_vehicles(frame_bgr: np.ndarray, model, cfg_camera: dict, cfg_detect: 
         boxes.xyxy.cpu().numpy(), boxes.cls.cpu().numpy(), boxes.conf.cpu().numpy(), track_ids, t_s,
         cfg_detect["score_min"],
     )
+
+
+class ClassVoter:
+    """같은 차(track_id)의 클래스를 최근 vote_window_s초 다수결(확신도 합)로 고정한다.
+
+    사용처: 1단계(탐지). 매 프레임 detect_vehicles() 바로 뒤에서 update()를 호출한다.
+    주의: 출력의 cls_name은 "이번 프레임 YOLO 판정"이 아니라 "최근 판정의 다수결"로 바뀐다 (새 키는 만들지 않음).
+          SUV가 car·truck·bus로, 멀리 있는 오토바이가 car·motorcycle로 오가면 거리 계산의 실제 폭(1.8m/0.8m)이 튀어서 고정한다.
+          처음 보는 차는 한 프레임 판정 그대로이고, 기록이 쌓일수록 안정된다. track_id가 None이면 그대로 둔다.
+          클래스로 만든 이유: 차마다 최근 판정 기록(상태)을 프레임 사이에 기억해야 해서.
+    """
+
+    def __init__(self, cfg_detect: dict) -> None:
+        """설정값을 읽고 기록을 비운다.
+
+        사용처: 영상(또는 카메라) 하나를 시작할 때 한 번.
+        입력: cfg_detect config의 detect 섹션 (class_vote_window_s 다수결에 쓸 최근 시간(s))
+        """
+        self.window_s = cfg_detect["class_vote_window_s"]
+        self.history = {}  # track_id → [(촬영 시각 s, cls_name, score), ...]
+
+    def update(self, dets: list[dict], t_s: float) -> list[dict]:
+        """이번 프레임 탐지의 cls_name을 차별 다수결 결과로 바꾼 사본을 돌려준다.
+
+        사용처: 1단계(탐지). 매 프레임 detect_vehicles() 결과로 호출한다.
+        입력: dets detect_vehicles() 결과, t_s 촬영 시각(s)
+        출력: dets와 같은 형식의 목록 (cls_name만 다수결 결과로 바뀜)
+        주의: 다수결은 확신도(score) 합으로 한다. 확신도 낮은 엉뚱한 판정 몇 번이 결과를 뒤집지 않게 하려고.
+        """
+        out = []
+        for d in dets:
+            tid = d["track_id"]
+            if tid is None:
+                out.append(d)
+                continue
+            hist = self.history.setdefault(tid, [])
+            hist.append((t_s, d["cls_name"], d["score"]))
+            # window보다 오래된 판정은 버린다 (경계값 t_s - window_s 는 포함)
+            hist[:] = [h for h in hist if h[0] >= t_s - self.window_s]
+            votes = {}
+            for _, cls_name, score in hist:
+                votes[cls_name] = votes.get(cls_name, 0.0) + score
+            out.append(dict(d, cls_name=max(votes, key=votes.get)))
+        # 오래 안 보인 차의 기록은 지운다 (메모리가 계속 늘지 않게)
+        self.history = {k: v for k, v in self.history.items() if v and v[-1][0] >= t_s - self.window_s}
+        return out
