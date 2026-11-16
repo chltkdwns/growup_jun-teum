@@ -54,7 +54,9 @@ cut_in:
 detect:
   weights_path: weights/yolo11s.pt  # YOLO 가중치 (backend 기준, COCO 사전학습 small. *.pt는 커밋 금지. 2026-11-16 yolo11n·yolo26n·yolo11s 비교에서 주행 중 오토바이 탐지가 가장 나아서 교체)
   score_min: 0.25           # 이보다 확신도가 낮은 박스는 버림 (ultralytics 기본값에서 시작, 개발용 영상으로만 조정)
-  iou: 0.7                  # 겹친 박스를 하나로 합치는 기준 (NMS, ultralytics 기본값)
+  score_min_by_class:       # 클래스별 확신도 하한 (없는 클래스는 score_min). 작게 찍혀 확신도가 낮게 나오는 오토바이만 따로
+    motorcycle: 0.15        # 2026-11-16 개발용 시내 영상 비교(0.25/0.20/0.15): 먼 오토바이 18%→38%, 고속도로 결과 변화 없음, 늘어난 박스 대부분 실제 이륜차(자전거 오검출 일부)
+  iou: 0.7                 # 겹친 박스를 하나로 합치는 기준 (NMS, ultralytics 기본값)
   agnostic_nms: true        # 클래스가 달라도 겹친 박스를 합침 (SUV를 car·truck로 동시에 잡아 박스가 2개 되는 것 방지)
   imgsz: 640                # YOLO 입력 크기 (px, 학습 크기와 같게. 키우면 먼 차를 더 찾지만 느려짐)
   device: null              # null이면 자동(GPU 있으면 GPU), "cpu" 또는 0(첫 GPU)으로 고정 가능

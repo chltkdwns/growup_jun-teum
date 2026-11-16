@@ -135,3 +135,18 @@ def test_class_vote_untracked_unchanged():
     """요약: track_id가 None이면 그대로 둔다."""
     det = _d(None, "bus")
     assert ClassVoter(VOTE_CFG).update([det], 0.0) == [det]
+
+
+def test_score_min_by_class_lowers_only_that_class():
+    """요약: 오토바이만 기준을 0.15로 낮추면, 확신도 0.2인 오토바이는 남고 같은 확신도의 차는 버려진다."""
+    xyxy = np.array([[0, 0, 10, 10], [20, 0, 30, 10]], dtype=float)
+    dets = to_detections(xyxy, np.array([3, 2]), np.array([0.2, 0.2]), None, 0.0, 0.25, {"motorcycle": 0.15})
+    assert [d["cls_name"] for d in dets] == ["motorcycle"]
+
+
+def test_yolo_conf_is_lowest_threshold():
+    """요약: YOLO에는 클래스별 기준 중 가장 낮은 값을 넘겨야 낮은 확신도 오토바이를 받을 수 있다."""
+    model = _FakeModel()
+    cfg_detect = dict(CFG["detect"], track=False, score_min=0.25, score_min_by_class={"motorcycle": 0.15})
+    detect_vehicles(np.zeros((720, 1280, 3), np.uint8), model, CFG["camera"], cfg_detect, 0.0)
+    assert model.seen_kwargs["conf"] == 0.15
