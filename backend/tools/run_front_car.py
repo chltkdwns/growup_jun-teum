@@ -2,7 +2,7 @@
 
 실행 (backend 폴더에서):
     python -m tools.run_front_car --video data/videos/highway.mp4 --out outputs/front_highway.mp4 \
-        --config configs/lane_shorts_portrait.yaml
+        --config tests/fixtures/config_highway_shorts.yaml
 
 화면: 굵은 빨간 박스 + "FRONT #id" = 앞차, 얇은 회색 박스 = 다른 차, 차선 색은 run_lane과 같음,
       기본 차선 영역을 쓰면 위쪽에 "DEFAULT AREA" (그때는 기본 영역 선을 주황으로 그림)

@@ -1,8 +1,8 @@
 """영상에 차량 탐지 결과를 그려 저장한다 (눈으로 확인용).
 
 실행 (backend 폴더에서):
-    python -m tools.run_detect --video data/videos/sample.mp4 --out outputs/detect_sample.mp4 \
-        --config configs/lane_shorts_portrait.yaml
+    python -m tools.run_detect --video data/videos/highway.mp4 --out outputs/detect_highway.mp4 \
+        --config tests/fixtures/config_highway_shorts.yaml
 
 화면: 박스 + "클래스 #track_id 확신도", 주황 가로선 = 보닛 선 (이 아래는 탐지에 쓰지 않음)
 """

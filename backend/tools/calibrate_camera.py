@@ -1,7 +1,7 @@
 """개발용 영상에서 카메라 보정값(vanishing_x_ratio, center_x_ratio, roi_top_ratio) 추천값을 구한다.
 
 실행 (backend 폴더에서):
-    python -m tools.calibrate_camera --video data/videos/sample.mp4 --config configs/lane_shorts_portrait.yaml
+    python -m tools.calibrate_camera --video data/videos/highway.mp4 --config tests/fixtures/config_highway_shorts.yaml
     python -m tools.calibrate_camera --video data/videos/new.mp4 --wide-roi   # 처음 보는 카메라
 
 config 파일은 고치지 않는다. 추천값을 보고 사람이 고친다. 평가용 영상으로 돌리지 않는다.
