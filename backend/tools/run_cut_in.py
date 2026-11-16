@@ -12,11 +12,7 @@ from pathlib import Path
 import cv2
 import yaml
 
-from app.detect.vehicles import ClassVoter, detect_vehicles, load_detector
-from app.lane.cut_in import CutInDetector
-from app.lane.detect import detect_lanes
-from app.lane.front_car import FrontCarTracker, select_front_car
-from app.lane.tracker import LaneTracker
+from app.pipeline import PerceptionPipeline
 from tools.run_front_car import draw_front
 from tools.run_lane import draw_lanes
 
@@ -29,7 +25,8 @@ def main() -> None:
     """영상 → 프레임마다 차선·탐지·앞차·끼어들기 → 그린 영상 저장 + 끼어들기 목록과 처리 ms 출력.
 
     입력: --video 영상 경로, --out 결과 영상 경로, --config 설정 파일
-    출력: 결과 영상, 콘솔에 끼어들기 시각·track_id·들어온 쪽, 처리 ms(차선+탐지+앞차+끼어들기, 첫 프레임 제외)
+    출력: 결과 영상, 콘솔에 앞차 바뀐 시각, 끼어들기 시각·track_id·들어온 쪽, 처리 ms(차선+탐지+앞차+끼어들기, 첫 프레임 제외)
+    주의: 분석은 PerceptionPipeline이 하고, 여기서는 그리기와 요약만 한다.
     """
     p = argparse.ArgumentParser()
     p.add_argument("--video", required=True)
@@ -38,11 +35,8 @@ def main() -> None:
     args = p.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
-    cam, lane_cfg, front_cfg = cfg["camera"], cfg["lane"], cfg["front_car"]
-    model = load_detector(cfg["detect"])
-    lane_tracker, front_tracker = LaneTracker(lane_cfg), FrontCarTracker(front_cfg)
-    cut_in_detector = CutInDetector(cfg["cut_in"])
-    voter = ClassVoter(cfg["detect"])
+    cam, lane_cfg = cfg["camera"], cfg["lane"]
+    pipeline = PerceptionPipeline(cfg)
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
         raise SystemExit(f"영상을 열 수 없음: {args.video}")
@@ -52,18 +46,20 @@ def main() -> None:
     writer = cv2.VideoWriter(args.out, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
     events, proc_ms, n = [], [], 0
+    switches, prev_front_id = [], None
     while True:
         ok, frame = cap.read()
         if not ok:
             break
         t_s = cap.get(cv2.CAP_PROP_POS_MSEC) / MS_PER_S
         t0_s = time.perf_counter()
-        lanes = lane_tracker.update(detect_lanes(frame, cam, lane_cfg), t_s)
-        dets = voter.update(detect_vehicles(frame, model, cam, cfg["detect"], t_s), t_s)  # 같은 차 클래스 고정
-        candidate = select_front_car(dets, lanes, w, h, cam, lane_cfg, front_cfg)
-        front = front_tracker.update(candidate, dets, t_s, lanes["lane_change"])
-        cut_in = cut_in_detector.update(dets, lanes, front, t_s, h, lanes["lane_change"])
+        res = pipeline.process(frame, t_s)
         proc_ms.append((time.perf_counter() - t0_s) * MS_PER_S)
+        lanes, dets, front, cut_in = res["lanes"], res["dets"], res["front"], res["cut_in"]
+        front_id = None if front is None else front["track_id"]
+        if front_id != prev_front_id:
+            switches.append((t_s, prev_front_id, front_id))
+            prev_front_id = front_id
 
         out = draw_lanes(frame, lanes, cam, lane_cfg)
         draw_front(out, dets, front, None)
@@ -84,6 +80,7 @@ def main() -> None:
 
     steady = proc_ms[1:] or proc_ms
     print(f"프레임 {n}장 → {args.out}")
+    print(f"앞차 바뀜 {len(switches)}회: " + ", ".join(f"{t:.2f}초({a}→{b})" for t, a, b in switches))
     print(f"끼어들기 {len(events)}회:")
     for i, e in events:
         print(f"  {e['t_s']:6.2f}초 #{i}: track {e['track_id']} ({e['side']}에서 들어옴)")
