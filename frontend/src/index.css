@@ -1,0 +1,23 @@
+/* 휴대폰 화면(Capacitor) 기준. 넓은 화면에서는 가운데 한 줄로 보인다 */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #111827; color: #f3f4f6; }
+main { max-width: 640px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.4rem; margin: 8px 0 16px; }
+.muted { color: #9ca3af; }
+.error { color: #f87171; }
+
+.list { display: flex; flex-direction: column; gap: 10px; }
+.card {
+  text-align: left; width: 100%; padding: 12px 14px; border: none; border-left: 6px solid;
+  border-radius: 8px; background: #1f2937; color: inherit; font: inherit; cursor: pointer;
+}
+.card:disabled { opacity: 0.5; cursor: default; }
+.card.selected { background: #374151; }
+.card-head { display: flex; align-items: center; gap: 8px; }
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; color: #fff; }
+.card-time { margin-top: 4px; font-size: 0.85rem; color: #9ca3af; }
+.card-stats { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.9rem; }
+
+.player { position: sticky; top: 0; z-index: 1; margin-bottom: 16px; background: #111827; padding-bottom: 8px; }
+.player video { width: 100%; border-radius: 8px; background: #000; }
+.close { margin-top: 6px; padding: 6px 14px; border: none; border-radius: 6px; background: #374151; color: inherit; }
