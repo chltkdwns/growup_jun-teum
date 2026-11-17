@@ -89,7 +89,16 @@ class ClipRecorder:
         출력: 이번에 저장이 끝난 클립 목록 (대부분 빈 목록)
         """
         _, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-        self._buffer.append((t_s, jpg.tobytes()))
+        return self.push_jpeg(jpg.tobytes(), t_s)
+
+    def push_jpeg(self, jpg: bytes, t_s: float) -> list[SavedClip]:
+        """이미 JPEG로 압축된 프레임 1장을 넣는다. push()와 하는 일은 같다.
+
+        사용처: 5단계(기록). 실시간 모드(LiveRecorder) — 폰이 보낸 JPEG를 다시 압축하지 않으려고.
+        입력: jpg JPEG 바이트, t_s 촬영 시각(초, 주행 시작 기준)
+        출력: 이번에 저장이 끝난 클립 목록 (대부분 빈 목록)
+        """
+        self._buffer.append((t_s, jpg))
         # 버퍼에는 최근 pre_s초만 남긴다 (링 버퍼)
         while t_s - self._buffer[0][0] > self.pre_s:
             self._buffer.popleft()
