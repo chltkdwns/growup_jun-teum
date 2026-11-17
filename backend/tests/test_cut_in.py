@@ -1,8 +1,8 @@
 """끼어들기 테스트: 차선과 박스, 촬영 시각을 직접 넣어 경계값을 확인한다."""
 from app.lane.cut_in import CutInDetector
 
-CFG = {"confirm_s": 0.15, "near_y_ratio": 0.7, "ignore_after_lane_change_s": 1.0}
-H = 720
+CFG = {"confirm_s": 0.15, "near_y_ratio": 0.7, "ignore_after_lane_change_s": 1.0, "edge_margin_ratio": 0.01}
+H, W = 720, 1280
 # 아래(y=612)에서 x 300~980, 위(y=432)에서 x 600~680 으로 모이는 내 차선
 LANES = {"left": (300, 612, 600, 432), "right": (980, 612, 680, 432), "estimated": (), "lane_change": None}
 NO_LANES = {"left": None, "right": None, "estimated": (), "lane_change": None}
@@ -20,7 +20,7 @@ FAR_FRONT = _det(640, 470, track_id=1, w=60, h=40)  # 멀리 있는 앞차 (y2=4
 def _run(steps: list, cfg: dict = CFG) -> list:
     """요약: (t_s, dets, front, lanes, lane_change) 목록을 차례로 넣고 결과 목록을 돌려준다."""
     det = CutInDetector(cfg)
-    return [det.update(dets, lanes, front, t, H, lc) for t, dets, front, lanes, lc in steps]
+    return [det.update(dets, lanes, front, t, H, W, lc) for t, dets, front, lanes, lc in steps]
 
 
 def test_cut_in_from_left_confirmed_after_hold():
@@ -122,3 +122,29 @@ def test_reported_once_per_entry():
     res = _run([(0.0, [out_left], None, LANES, None), (0.1, [inside], None, LANES, None),
                 (0.3, [inside], None, LANES, None), (0.5, [inside], None, LANES, None)])
     assert res[2] is not None and res[3] is None
+
+
+def test_clipped_box_at_left_edge_not_confirmed_until_unclipped():
+    """요약: 박스가 화면 왼쪽 끝(x1 ≤ 폭×0.01 = 12.8px)에 붙어 있으면 확정 안 하고, 끝에서 떨어지면 확정한다."""
+    out_left = _det(250, 560, track_id=2, w=500)  # x1=0, 가운데는 왼쪽 경계 밖
+    clipped = _det(450, 560, track_id=2, w=900)  # x1=0 (잘림), 가운데는 안
+    at_edge = _det(450, 560, track_id=2, w=876)  # x1=12 < 12.8 → 아직 잘린 박스
+    unclipped = _det(450, 560, track_id=2, w=860)  # x1=20 → 확정
+    res = _run([
+        (0.0, [out_left], None, LANES, None),
+        (0.1, [clipped], None, LANES, None),  # 들어옴
+        (0.3, [clipped], None, LANES, None),  # 0.2초 지났지만 잘린 박스
+        (0.35, [at_edge], None, LANES, None),
+        (0.4, [unclipped], None, LANES, None),  # 들어온 기록은 유지돼 바로 확정
+    ])
+    assert res[:4] == [None, None, None, None]
+    assert res[4] == {"track_id": 2, "side": "left", "t_s": 0.4}
+
+
+def test_clipped_box_at_right_edge_not_confirmed():
+    """요약: 박스 x2가 화면 오른쪽 끝(폭 - 12.8px 이상)에 붙어 있으면 확정하지 않는다."""
+    out_right = _det(1050, 560, track_id=3, w=460)  # x2=1280, 가운데는 오른쪽 경계 밖
+    clipped = _det(850, 560, track_id=3, w=860)  # x2=1280 (잘림), 가운데는 안
+    res = _run([(0.0, [out_right], None, LANES, None), (0.1, [clipped], None, LANES, None),
+                (0.3, [clipped], None, LANES, None)])
+    assert res == [None, None, None]

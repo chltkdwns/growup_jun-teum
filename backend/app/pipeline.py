@@ -59,6 +59,6 @@ class PerceptionPipeline:
         candidate = select_front_car(dets, lanes, img_w, img_h, cam, lane_cfg, front_cfg)
         front = self.front_tracker.update(candidate, dets, t_s, lanes["lane_change"])
         # 4단계 끼어들기
-        cut_in = self.cut_in_detector.update(dets, lanes, front, t_s, img_h, lanes["lane_change"])
+        cut_in = self.cut_in_detector.update(dets, lanes, front, t_s, img_h, img_w, lanes["lane_change"])
         return {"dets": dets, "lanes": lanes, "offset": offset, "lane_change": lanes["lane_change"],
                 "front": front, "cut_in": cut_in}
