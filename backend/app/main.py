@@ -80,6 +80,20 @@ class AnalysisOut(BaseModel):
     error: str | None
 
 
+class DriveOut(BaseModel):
+    id: int
+    source: str  # live | upload
+    video_name: str | None
+    started_at: datetime
+    ended_at: datetime | None
+    # 주행 길이 (초). 실시간만 (끝 - 시작). upload는 끝-시작이 영상 길이가 아니라 분석 시간이라 None
+    duration_s: float | None
+    distance_km: float | None
+    events: int  # 아찔한 순간 수
+    danger_events: int  # 그중 위험 단계 수
+    worst_ttc_s: float | None  # 이 주행에서 가장 낮았던 TTC
+
+
 class EventOut(BaseModel):
     id: int
     drive_id: int
@@ -203,6 +217,52 @@ def create_event(
     get_own_drive(session, drive_id, device_id)
     event, merged = record_event(session, drive_id, body)
     return {"event_id": event.id, "merged": merged}
+
+
+@app.get("/drives")
+def list_drives(
+    device_id: DeviceIdDep, session: SessionDep, limit: int = 30
+) -> list[DriveOut]:
+    """요청한 기기의 주행 목록과 주행별 요약 (최근 것부터). 주행 분석 화면에서 쓴다.
+
+    사용처: 5단계(표시). 앱 '주행 분석' 화면.
+    입력: device_id 요청 헤더의 기기 UUID, limit 최대 개수
+    출력: DriveOut 목록
+    주의: schema.sql의 drive_summary 뷰와 같은 계산을 기기 조건을 붙여 SQLAlchemy로 한다
+          (뷰는 models.py에 클래스가 없어서). 아찔한 순간이 없는 주행도 0건으로 나온다(LEFT JOIN).
+    """
+    rows = session.execute(
+        select(
+            Drive,
+            func.count(Event.id),
+            func.count(Event.id).filter(Event.level == "danger"),
+            func.min(Event.min_ttc_s),
+        )
+        .outerjoin(Event)
+        .where(Drive.device_id == device_id)
+        .group_by(Drive.id)
+        .order_by(Drive.started_at.desc())
+        .limit(limit)
+    ).all()
+    return [
+        DriveOut(
+            id=d.id,
+            source=d.source,
+            video_name=d.video_name,
+            started_at=d.started_at,
+            ended_at=d.ended_at,
+            duration_s=(
+                (d.ended_at - d.started_at).total_seconds()
+                if d.source == "live" and d.ended_at
+                else None
+            ),
+            distance_km=d.distance_km,
+            events=n,
+            danger_events=n_danger,
+            worst_ttc_s=worst,
+        )
+        for d, n, n_danger, worst in rows
+    ]
 
 
 @app.get("/events")
