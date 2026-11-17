@@ -5,7 +5,12 @@ import numpy as np
 import pytest
 import yaml
 
-from app.detect.vehicles import detect_vehicles, load_detector, to_detections
+from app.detect.vehicles import (
+    ClassVoter,
+    detect_vehicles,
+    load_detector,
+    to_detections,
+)
 
 BACKEND = Path(__file__).parents[1]
 CFG = yaml.safe_load((BACKEND / "config.yaml").read_text(encoding="utf-8"))
@@ -92,3 +97,56 @@ def test_real_model_runs_on_blank_frame():
     cfg_detect = dict(CFG["detect"], weights_path=str(BACKEND / CFG["detect"]["weights_path"]), track=False)
     model = load_detector(cfg_detect)
     assert detect_vehicles(np.zeros((720, 1280, 3), np.uint8), model, CFG["camera"], cfg_detect, 0.0) == []
+
+
+VOTE_CFG = {"class_vote_window_s": 1.0}
+
+
+def _d(tid, cls_name: str, score: float = 0.9) -> dict:
+    """요약: cls_name만 다른 가짜 탐지."""
+    return {"track_id": tid, "cls_name": cls_name, "score": score, "box_xyxy_px": (0, 0, 10, 10), "t_s": 0.0}
+
+
+def test_class_vote_keeps_majority():
+    """요약: car 판정이 쌓인 차가 한 프레임 truck으로 나와도 car로 유지."""
+    v = ClassVoter(VOTE_CFG)
+    for t in (0.0, 0.1, 0.2):
+        v.update([_d(1, "car")], t)
+    assert v.update([_d(1, "truck")], 0.3)[0]["cls_name"] == "car"
+
+
+def test_class_vote_weighted_by_score():
+    """요약: 다수결은 확신도 합으로 한다 (확신도 낮은 판정 여러 번 < 확신도 높은 판정 한 번)."""
+    v = ClassVoter(VOTE_CFG)
+    v.update([_d(1, "motorcycle", 0.9)], 0.0)
+    v.update([_d(1, "car", 0.3)], 0.1)
+    assert v.update([_d(1, "car", 0.3)], 0.2)[0]["cls_name"] == "motorcycle"
+
+
+def test_class_vote_forgets_old_votes():
+    """요약: 1초보다 오래된 판정은 다수결에서 빠진다."""
+    v = ClassVoter(VOTE_CFG)
+    for t in (0.0, 0.1, 0.2):
+        v.update([_d(1, "car")], t)
+    assert v.update([_d(1, "truck")], 1.5)[0]["cls_name"] == "truck"
+
+
+def test_class_vote_untracked_unchanged():
+    """요약: track_id가 None이면 그대로 둔다."""
+    det = _d(None, "bus")
+    assert ClassVoter(VOTE_CFG).update([det], 0.0) == [det]
+
+
+def test_score_min_by_class_lowers_only_that_class():
+    """요약: 오토바이만 기준을 0.15로 낮추면, 확신도 0.2인 오토바이는 남고 같은 확신도의 차는 버려진다."""
+    xyxy = np.array([[0, 0, 10, 10], [20, 0, 30, 10]], dtype=float)
+    dets = to_detections(xyxy, np.array([3, 2]), np.array([0.2, 0.2]), None, 0.0, 0.25, {"motorcycle": 0.15})
+    assert [d["cls_name"] for d in dets] == ["motorcycle"]
+
+
+def test_yolo_conf_is_lowest_threshold():
+    """요약: YOLO에는 클래스별 기준 중 가장 낮은 값을 넘겨야 낮은 확신도 오토바이를 받을 수 있다."""
+    model = _FakeModel()
+    cfg_detect = dict(CFG["detect"], track=False, score_min=0.25, score_min_by_class={"motorcycle": 0.15})
+    detect_vehicles(np.zeros((720, 1280, 3), np.uint8), model, CFG["camera"], cfg_detect, 0.0)
+    assert model.seen_kwargs["conf"] == 0.15
