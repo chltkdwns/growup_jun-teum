@@ -1,6 +1,6 @@
 """아찔한 순간 기록 로직. API(main.py)와 영상 분석 루프가 같은 함수를 쓴다 (FastAPI를 import하지 않음)."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.clip_recorder import SavedClip
 from app.models import Clip, Event
+from app.schemas import NearMissType, NearMissWarning
 
 ROOT = Path(__file__).resolve().parents[2]  # 레포 루트 (클립 경로의 기준)
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yaml"  # backend/config.yaml
@@ -19,7 +20,7 @@ NEARMISS_CFG = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))["nearmiss
 # 단계 순서: 합칠 때 더 높은 단계를 남긴다
 LEVEL_RANK = {"warning": 1, "danger": 2}
 
-EventType = Literal["lead", "cut_in", "brake", "lane_departure", "rear", "two_wheeler"]
+EventType = NearMissType  # 종류 이름은 schemas.py 한 곳에서 정한다
 Level = Literal["warning", "danger"]
 
 
@@ -39,6 +40,26 @@ class EventIn(BaseModel):
     target_class: str | None = None
     duration_s: float | None = None
     detail: dict = {}
+
+
+def to_event_in(warning: NearMissWarning, started_at: datetime) -> EventIn:
+    """경고 판단의 경고 1개를 DB에 넣을 이벤트 모양으로 바꾼다.
+
+    사용처: 5단계(기록). 실시간 기록(LiveRecorder)이 record_event 전에 부른다.
+    입력: warning 경고(level은 warning·danger만), started_at 주행 시작 시각(시간대 포함)
+    출력: EventIn
+    주의: 판단 쪽 이름(ttc_s)과 DB 칸 이름(min_ttc_s)이 다른 곳은 여기서만 이어 준다.
+    """
+    return EventIn(
+        occurred_at=started_at + timedelta(seconds=warning.t_s),
+        offset_s=warning.t_s,
+        type=warning.type,
+        level=warning.level,
+        min_ttc_s=warning.ttc_s,
+        distance_m=warning.distance_m,
+        lateral_m=warning.lateral_m,
+        target_class=warning.target_class,
+    )
 
 
 def find_merge_target(

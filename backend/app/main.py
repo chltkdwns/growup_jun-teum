@@ -1,11 +1,24 @@
-"""아찔한 순간 기록 API (1차: 영상 파일 모드 저장·목록). 로직은 nearmiss.py에 있다."""
+"""아찔한 순간 기록 API (영상 파일 모드 저장·목록, 실시간 /live). 로직은 nearmiss.py·live_recorder.py에 있다."""
 
+import asyncio
 import os
+import time
 import uuid
+from dataclasses import asdict
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+import cv2
+import numpy as np
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -13,8 +26,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.fake_warning import FakeWarningSource
+from app.live_recorder import LiveRecorder
 from app.models import Clip, Device, Drive, Event
-from app.nearmiss import ROOT, EventIn, record_event
+from app.nearmiss import NEARMISS_CFG, ROOT, EventIn, record_event
 
 # FastAPI 권장 방식: 요청마다 DB 세션을 주입받는 타입
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -137,3 +152,40 @@ def get_clip(
     if clip is None:
         raise HTTPException(status_code=404, detail="clip not found")
     return FileResponse(ROOT / clip.object_key, media_type="video/mp4")
+
+
+@app.websocket("/live")
+async def live(websocket: WebSocket, device_id: Annotated[uuid.UUID, Query()]) -> None:
+    """실시간 주행. 폰이 JPEG 프레임을 보내면 경고 판단 결과(JSON)를 돌려보내고, 아찔한 순간은 클립으로 저장한다.
+
+    사용처: 5단계(표시·기록). 앱 주행 화면이 ws://서버/live?device_id=<UUID>로 연결한다.
+    입력: 바이너리 메시지 1개 = JPEG 프레임 1장
+    출력: 연결 직후 {"drive_id"}, 이후 프레임마다 {"t_s", "warnings"}
+    주의: 브라우저 WebSocket은 헤더를 못 붙여서 기기 UUID를 X-Device-Id 대신 주소(query)로 받는다.
+          없거나 UUID 모양이 아니면 FastAPI가 연결을 거절한다(1008).
+          DB·클립 저장은 LiveRecorder가 뒤에서 하므로 이 루프는 기다리지 않는다.
+    """
+    await websocket.accept()
+    recorder = LiveRecorder(device_id)
+    drive_id = await asyncio.to_thread(recorder.start)
+    # 연결마다 새로 만든다. 진짜 경고 판단으로 바꿔도 YOLO·추적 상태는 연결마다 새로 불러온다(11/5 결정)
+    judge = FakeWarningSource(NEARMISS_CFG["live_fake_warning_at_s"])
+    await websocket.send_json({"drive_id": drive_id})
+
+    # 촬영 시각 = 서버가 받은 순간 (Windows에서 monotonic은 해상도가 약 16ms라 perf_counter 사용)
+    t0 = time.perf_counter()
+    try:
+        while True:
+            jpg = await websocket.receive_bytes()
+            t_s = time.perf_counter() - t0
+            frame = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+            warnings = judge(frame, t_s)
+            recorder.submit(jpg, t_s, warnings)
+            await websocket.send_json(
+                {"t_s": t_s, "warnings": [asdict(w) for w in warnings]}
+            )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        # 남은 클립 저장·주행 종료 (기다리는 동안 다른 연결이 멈추지 않게 스레드에서)
+        await asyncio.to_thread(recorder.close)
