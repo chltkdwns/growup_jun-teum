@@ -30,20 +30,23 @@ def load_detector(cfg_detect: dict):
 
 def to_detections(
     xyxy_px: np.ndarray, cls_ids: np.ndarray, scores: np.ndarray, track_ids: list | None, t_s: float,
-    score_min: float,
+    score_min: float, score_min_by_class: dict | None = None,
 ) -> list[dict]:
     """YOLO 결과 배열을 차량 탐지 dict 목록으로 바꾸고, 차량이 아니거나 확신도가 낮은 것은 버린다.
 
     사용처: 1단계(탐지). detect_vehicles() 안에서 매 프레임. (모델 없이 테스트할 수 있게 분리)
     입력: xyxy_px (N, 4) 박스 좌표(px), cls_ids (N,) COCO 클래스 번호, scores (N,) 확신도(0~1),
-          track_ids 추적 번호 목록(N개) 또는 None(추적 안 함), t_s 촬영 시각(s), score_min 확신도 하한
+          track_ids 추적 번호 목록(N개) 또는 None(추적 안 함), t_s 촬영 시각(s), score_min 기본 확신도 하한,
+          score_min_by_class 클래스별 확신도 하한 {cls_name: 값} (없는 클래스는 score_min)
     출력: [{"track_id": int|None, "cls_name": "car"|"motorcycle"|"bus"|"truck", "score": float,
            "box_xyxy_px": (x1, y1, x2, y2) float, "t_s": float}, ...]
+    주의: 오토바이처럼 작고 확신도가 낮게 나오는 클래스만 기준을 따로 낮출 수 있다 (차는 기존 기준 유지, 오검출 증가 방지).
     """
+    by_class = score_min_by_class or {}
     dets = []
     for i in range(len(cls_ids)):
         cls_name = COCO_VEHICLE_CLASSES.get(int(cls_ids[i]))
-        if cls_name is None or scores[i] < score_min:
+        if cls_name is None or scores[i] < by_class.get(cls_name, score_min):
             continue
         x1, y1, x2, y2 = (float(v) for v in xyxy_px[i])
         dets.append({
@@ -61,15 +64,18 @@ def detect_vehicles(frame_bgr: np.ndarray, model, cfg_camera: dict, cfg_detect: 
 
     사용처: 1단계(탐지). 매 프레임 호출하고, 결과로 앞차 선정·거리·TTC를 한다.
     입력: frame_bgr 원본 프레임(BGR), model load_detector() 결과, cfg_camera(bonnet_ratio),
-          cfg_detect(score_min, iou, agnostic_nms, imgsz, device, track, tracker), t_s 촬영 시각(s)
+          cfg_detect(score_min, score_min_by_class, iou, agnostic_nms, imgsz, device, track, tracker), t_s 촬영 시각(s)
     출력: to_detections() 형식의 dict 목록. 좌표는 원본 프레임 기준(px)
     주의: SPEC대로 보닛 아래(bonnet_ratio)를 잘라낸 뒤 탐지한다. 위쪽만 잘라서 좌표는 그대로다.
           보닛에 걸친 가까운 차는 박스 아래가 잘리지만, 거리 계산에 쓰는 박스 폭은 그대로다.
           track=True면 프레임 순서대로 호출해야 한다 (ultralytics 추적기가 이전 프레임을 기억함).
+          YOLO에는 클래스별 기준 중 가장 낮은 값으로 받고, to_detections()에서 클래스별 기준으로 다시 거른다.
     """
     bonnet_y_px = int(frame_bgr.shape[0] * cfg_camera["bonnet_ratio"])
+    by_class = cfg_detect["score_min_by_class"]
+    conf_min = min([cfg_detect["score_min"], *by_class.values()])
     kwargs = {
-        "classes": list(COCO_VEHICLE_CLASSES), "conf": cfg_detect["score_min"], "iou": cfg_detect["iou"],
+        "classes": list(COCO_VEHICLE_CLASSES), "conf": conf_min, "iou": cfg_detect["iou"],
         "agnostic_nms": cfg_detect["agnostic_nms"],
         "imgsz": cfg_detect["imgsz"], "device": cfg_detect["device"], "verbose": False,
     }
@@ -82,5 +88,51 @@ def detect_vehicles(frame_bgr: np.ndarray, model, cfg_camera: dict, cfg_detect: 
     track_ids = None if boxes.id is None else boxes.id.int().tolist()
     return to_detections(
         boxes.xyxy.cpu().numpy(), boxes.cls.cpu().numpy(), boxes.conf.cpu().numpy(), track_ids, t_s,
-        cfg_detect["score_min"],
+        cfg_detect["score_min"], by_class,
     )
+
+
+class ClassVoter:
+    """같은 차(track_id)의 클래스를 최근 vote_window_s초 다수결(확신도 합)로 고정한다.
+
+    사용처: 1단계(탐지). 매 프레임 detect_vehicles() 바로 뒤에서 update()를 호출한다.
+    주의: 출력의 cls_name은 "이번 프레임 YOLO 판정"이 아니라 "최근 판정의 다수결"로 바뀐다 (새 키는 만들지 않음).
+          SUV가 car·truck·bus로, 멀리 있는 오토바이가 car·motorcycle로 오가면 거리 계산의 실제 폭(1.8m/0.8m)이 튀어서 고정한다.
+          처음 보는 차는 한 프레임 판정 그대로이고, 기록이 쌓일수록 안정된다. track_id가 None이면 그대로 둔다.
+          클래스로 만든 이유: 차마다 최근 판정 기록(상태)을 프레임 사이에 기억해야 해서.
+    """
+
+    def __init__(self, cfg_detect: dict) -> None:
+        """설정값을 읽고 기록을 비운다.
+
+        사용처: 영상(또는 카메라) 하나를 시작할 때 한 번.
+        입력: cfg_detect config의 detect 섹션 (class_vote_window_s 다수결에 쓸 최근 시간(s))
+        """
+        self.window_s = cfg_detect["class_vote_window_s"]
+        self.history = {}  # track_id → [(촬영 시각 s, cls_name, score), ...]
+
+    def update(self, dets: list[dict], t_s: float) -> list[dict]:
+        """이번 프레임 탐지의 cls_name을 차별 다수결 결과로 바꾼 사본을 돌려준다.
+
+        사용처: 1단계(탐지). 매 프레임 detect_vehicles() 결과로 호출한다.
+        입력: dets detect_vehicles() 결과, t_s 촬영 시각(s)
+        출력: dets와 같은 형식의 목록 (cls_name만 다수결 결과로 바뀜)
+        주의: 다수결은 확신도(score) 합으로 한다. 확신도 낮은 엉뚱한 판정 몇 번이 결과를 뒤집지 않게 하려고.
+        """
+        out = []
+        for d in dets:
+            tid = d["track_id"]
+            if tid is None:
+                out.append(d)
+                continue
+            hist = self.history.setdefault(tid, [])
+            hist.append((t_s, d["cls_name"], d["score"]))
+            # window보다 오래된 판정은 버린다 (경계값 t_s - window_s 는 포함)
+            hist[:] = [h for h in hist if h[0] >= t_s - self.window_s]
+            votes = {}
+            for _, cls_name, score in hist:
+                votes[cls_name] = votes.get(cls_name, 0.0) + score
+            out.append(dict(d, cls_name=max(votes, key=votes.get)))
+        # 오래 안 보인 차의 기록은 지운다 (메모리가 계속 늘지 않게)
+        self.history = {k: v for k, v in self.history.items() if v and v[-1][0] >= t_s - self.window_s}
+        return out

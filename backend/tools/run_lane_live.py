@@ -2,7 +2,7 @@
 
 실행 (backend 폴더에서):
     python -m tools.run_lane_live --source 0
-    python -m tools.run_lane_live --source data/videos/sample.mp4 --config configs/lane_shorts_portrait.yaml \
+    python -m tools.run_lane_live --source data/videos/highway.mp4 --config tests/fixtures/config_highway_shorts.yaml \
         --realtime --no-show --save outputs/lane_live.mp4
 
 화면 색은 run_lane.py와 같다. 왼쪽 위에 처리 시간(ms)과 실제 fps를 표시한다. q를 누르면 종료.
