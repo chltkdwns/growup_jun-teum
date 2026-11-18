@@ -134,3 +134,13 @@ def test_load_brake_model_missing_file_stops(tmp_path):
     """요약: 가중치 파일이 없으면 자동 다운로드하지 않고 멈추는지."""
     with pytest.raises(FileNotFoundError):
         load_brake_model(dict(CFG, weights_path=str(tmp_path / "none.pt")))
+
+
+def test_output_keys_match_schema():
+    """요약: BrakeStateTracker 출력 키가 schemas.BrakeState(11.17 합의)와 같은지 (모름일 때도)."""
+    from app.schemas import BrakeState
+
+    keys = set(BrakeState.__annotations__)
+    tr = BrakeStateTracker(CFG)
+    assert set(tr.update(FRONT, _matched(), _car(third=True), 0.0)) == keys
+    assert set(tr.update(None, None, _car(), 0.1)) == keys
