@@ -178,3 +178,28 @@ def test_clip_saved_and_served(device_id, other_device_id):
         assert r.status_code == 404
     finally:
         saved[0].path.unlink()
+
+
+def test_list_drives_summary(device_id, other_device_id):
+    """GET /drives: 주행마다 아찔한 순간 수·위험 수·최저 TTC. 이벤트 없는 주행은 0건, 남의 주행은 안 보인다."""
+    empty_id = _new_drive(device_id)
+    busy_id = _new_drive(device_id)
+    for sec, level, ttc in [
+        (0, "warning", 2.5),
+        (20, "danger", 1.2),
+    ]:  # 5초 넘게 떨어져 2건
+        client.post(
+            f"/drives/{busy_id}/events",
+            json=_event(sec, level, ttc),
+            headers=_h(device_id),
+        )
+    _new_drive(other_device_id)
+
+    drives = {d["id"]: d for d in client.get("/drives", headers=_h(device_id)).json()}
+    assert set(drives) == {empty_id, busy_id}
+    assert drives[empty_id]["events"] == 0
+    assert drives[empty_id]["worst_ttc_s"] is None
+    assert drives[busy_id]["events"] == 2
+    assert drives[busy_id]["danger_events"] == 1
+    assert drives[busy_id]["worst_ttc_s"] == pytest.approx(1.2)
+    assert drives[busy_id]["duration_s"] is None  # upload는 영상 길이를 모른다
