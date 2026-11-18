@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchEvents } from './api.js'
 import AppMenu from './components/AppMenu.jsx'
+import BottomNav from './components/BottomNav.jsx'
 import ClipPlayer from './components/ClipPlayer.jsx'
 import DriveAnalysis from './components/DriveAnalysis.jsx'
 import LiveDrive from './components/LiveDrive.jsx'
@@ -8,7 +9,7 @@ import NearMissList from './components/NearMissList.jsx'
 import VideoUpload from './components/VideoUpload.jsx'
 import { PAGES } from './constants.js'
 
-// 위쪽 줄(☰ + 화면 이름)과 지금 고른 화면 하나를 그린다 (라우터 라이브러리 없이 state 하나로).
+// 위쪽 줄(로고 + ☰), 화면 제목, 지금 고른 화면 하나, 아래 고정 바를 그린다 (라우터 라이브러리 없이 state 하나로).
 export default function App() {
   const [page, setPage] = useState('drive')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -38,14 +39,19 @@ export default function App() {
   return (
     <>
       <header className="topbar">
+        {/* 로고를 누르면 메인 화면(실시간 주행 카메라)으로 돌아간다 */}
+        <button className="logo-button" aria-label="메인 화면" onClick={() => selectPage('drive')}>
+          <img src="/teum_logo_white.png" alt="teum" />
+        </button>
         <button className="menu-button" aria-label="메뉴" onClick={() => setMenuOpen(true)}>
           ☰
         </button>
-        <span>{PAGES[page]}</span>
       </header>
       {menuOpen && <AppMenu page={page} onSelect={selectPage} onClose={() => setMenuOpen(false)} />}
 
       <main>
+        <h1>{PAGES[page]}</h1>
+        {page === 'profile' && <p className="muted">내 정보는 준비 중입니다.</p>}
         {page === 'drive' && <LiveDrive />}
         {page === 'upload' && (
           <>
@@ -70,6 +76,7 @@ export default function App() {
           <p className="muted">후방 카메라(뒷차 급접근 확인)는 준비 중입니다.</p>
         )}
       </main>
+      <BottomNav page={page} onSelect={selectPage} />
     </>
   )
 }
