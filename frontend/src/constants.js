@@ -42,14 +42,19 @@ export const LIVE_JPEG_QUALITY = 0.7 // JPEG 화질 (0~1)
 // 프레임을 보내는 최소 간격 (ms). 서버 답이 빨라도 초당 약 15장을 넘기지 않게 해서 배터리·데이터를 아낀다
 export const LIVE_MIN_FRAME_INTERVAL_MS = 66
 
-// ☰ 메뉴의 화면 목록 (키 → 화면 이름). 첫 화면은 주행
+// 화면 목록 (키 → 화면 이름). 첫 화면은 주행. 이름은 헤더 아래 제목에도 쓴다
 export const PAGES = {
   drive: '주행',
+  rear: '후방 확인',
+  profile: '내 정보',
   records: '내 위험 보기',
   upload: '블랙박스 영상 분석',
   analysis: '주행 분석',
-  rear: '후방 카메라',
 }
+// 아래 고정 바에 둘 화면 (운전 중 바로 누르는 것)
+export const BOTTOM_PAGES = ['drive', 'rear']
+// ☰ 메뉴에 둘 화면 (주행 전후에 보는 것)
+export const MENU_PAGES = ['profile', 'records', 'upload', 'analysis']
 
 // GPS: 정확도(오차 반경)가 이보다 나쁜 위치는 거리·속도 계산에 쓰지 않는다 (m). 멈춰 있어도 위치가 튀어서 거리가 늘어나는 것 방지
 export const GPS_MAX_ACCURACY_M = 30
