@@ -3,6 +3,7 @@
 실행 (backend 폴더에서):
     python -m tools.run_pipeline_timing --video data/videos/night.mp4 --every-n 1 2 3
     python -m tools.run_pipeline_timing --video data/videos/night.mp4 --every-n 1 3 --device cpu   # CPU로 고정
+    python -m tools.run_pipeline_timing --video data/videos/night.mp4 --every-n 3 --resize 1280x720  # 폰이 보낼 크기로 줄여서
 
 출력: every_n마다 단계별(탐지·차선·앞차·브레이크등·끼어들기·전체) 평균/p95/최대 ms, 15fps(67ms) 안에 드는지,
       앞차 있는 프레임 중 켜짐·꺼짐·미등 처리·모름 비율. 마지막에 발표 자료에 붙일 마크다운 표.
@@ -76,11 +77,12 @@ def brake_kind(brake: dict | None) -> str:
     return "tail" if brake["model_on"] else "off"
 
 
-def run_once(cfg: dict, video: str, max_frames: int | None) -> dict:
+def run_once(cfg: dict, video: str, max_frames: int | None, resize: tuple[int, int] | None = None) -> dict:
     """영상 하나를 처음부터 끝까지(또는 max_frames장) 돌려 단계별 ms 목록과 브레이크등 판단 개수를 모은다.
 
     사용처: main()에서 every_n 값마다 한 번. 매번 새 파이프라인을 만든다 (추적 상태가 섞이지 않게).
-    입력: cfg 설정 전체(pipeline.brake_every_n_frames를 바꿔서 넣음), video 영상 경로, max_frames 최대 프레임 수
+    입력: cfg 설정 전체(pipeline.brake_every_n_frames를 바꿔서 넣음), video 영상 경로, max_frames 최대 프레임 수,
+          resize (가로, 세로) px로 줄여서 넣기 (실시간에서 폰이 보낼 크기 흉내, None이면 원본 크기)
     출력: {"ms": {단계: [ms, ...]}, "counts": {"on", "off", "tail", "unknown"}, "n": 프레임 수, "has_brake": bool}
     주의: 첫 프레임은 모델 준비(워밍업) 시간이 섞여서 ms 목록에서 뺀다.
     """
@@ -96,6 +98,8 @@ def run_once(cfg: dict, video: str, max_frames: int | None) -> dict:
         if not ok:
             break
         t_s = cap.get(cv2.CAP_PROP_POS_MSEC) / MS_PER_S
+        if resize is not None:
+            frame = cv2.resize(frame, resize)  # 줄이는 시간은 폰에서 하는 일이라 측정에서 뺀다
         res, frame_ms = process_timed(pipe, frame, t_s)
         if n > 0:
             for s in STAGES:
@@ -134,6 +138,7 @@ def main() -> None:
     p.add_argument("--every-n", type=int, nargs="+", default=[1, 2, 3])
     p.add_argument("--device", default=None, help='"cpu" 또는 GPU 번호(0). 없으면 config의 device')
     p.add_argument("--max-frames", type=int, default=None)
+    p.add_argument("--resize", default=None, help="넣기 전에 이 크기로 줄임, 예: 1280x720 (실시간 전송 크기 흉내)")
     args = p.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
@@ -143,12 +148,17 @@ def main() -> None:
         cfg["brake"]["device"] = dev
     device = device_name(cfg["detect"]["device"])
     budget_ms = MS_PER_S / TARGET_FPS
-    print(f"영상 {args.video} | 장치 {device} | 탐지 imgsz {cfg['detect']['imgsz']} | 브레이크등 imgsz {cfg['brake']['imgsz']}")
+    resize = tuple(int(v) for v in args.resize.lower().split("x")) if args.resize else None
+    cap = cv2.VideoCapture(args.video)
+    src_size = f"{int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}"
+    cap.release()
+    size = f"{src_size} → {args.resize}" if resize else src_size
+    print(f"영상 {args.video} ({size}) | 장치 {device} | 탐지 imgsz {cfg['detect']['imgsz']} | 브레이크등 imgsz {cfg['brake']['imgsz']}")
 
     rows = []
     for every_n in args.every_n:
         cfg["pipeline"]["brake_every_n_frames"] = every_n
-        r = run_once(cfg, args.video, args.max_frames)
+        r = run_once(cfg, args.video, args.max_frames, resize)
         if not r["has_brake"]:
             print(f"주의: 브레이크등 가중치가 없음({cfg['brake']['weights_path']}) → 브레이크등 단계 0ms로 잡힘")
         stat = {s: (np.mean(v), np.percentile(v, 95), np.max(v)) if v else (0.0, 0.0, 0.0) for s, v in r["ms"].items()}
@@ -171,7 +181,7 @@ def main() -> None:
             f"| {every_n} | {stage_ms} | {stat['total'][0]:.1f} | {stat['total'][1]:.1f} | {ok} | "
             f"{ratio['on']:.0%} | {ratio['off']:.0%} | {ratio['tail']:.0%} | {ratio['unknown']:.0%} |"
         )
-    print(f"(단위 ms, 첫 프레임 제외, 장치 {device})")
+    print(f"(단위 ms, 첫 프레임 제외, 장치 {device}, 크기 {size})")
 
 
 if __name__ == "__main__":
