@@ -67,10 +67,10 @@ detect:
 
 # ---------- 브레이크등 인식 (성아영) ----------
 brake:
-  weights_path: weights/brake_v1.pt  # 브레이크등 YOLO 가중치 (backend 기준, Colab 학습 best.pt. *.pt는 커밋 금지)
+  weights_path: weights/brake_8s.pt  # 브레이크등 YOLO 가중치 (backend 기준, Colab 학습 YOLOv8s 입력 960 best.pt = brake_s960 48 epoch. 2026-11-18 팀 확정. *.pt는 커밋 금지)
   score_min: 0.3            # 이보다 확신도가 낮은 브레이크등 모델 박스는 버림
   on_score_min: 0.5         # "켜짐"은 이 확신도 이상일 때만 인정 (꺼짐을 켜짐으로 착각하는 오경보 31%를 줄이려고 높임)
-  imgsz: 640                # 모델 입력 크기 (px, 학습 크기와 같게)
+  imgsz: 960                # 모델 입력 크기 (px, 학습 크기와 같게. v8s는 960으로 학습)
   device: null              # null이면 자동(GPU 있으면 GPU), "cpu" 또는 0(첫 GPU)
   match_iou_min: 0.3        # 앞차 박스와 이만큼(겹친 넓이 비율 0~1) 이상 겹쳐야 같은 차로 봄
   third_lamp_region_ratio: [0.30, 0.00, 0.70, 0.30]  # 보조 제동등 영역 [x1, y1, x2, y2] (차 박스 대비, 위쪽 가운데)
