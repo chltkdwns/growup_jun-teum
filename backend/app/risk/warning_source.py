@@ -30,6 +30,8 @@ class PipelineWarningSource:
         self._lead = LeadRiskTracker(cfg_risk)
         self._judge = WarningJudge(cfg_risk)
         self.speed_kmh = speed_kmh
+        self.last_result: dict | None = None  # 직전 프레임의 pipeline.process() 결과 (확인용 화면이 박스·차선을 그릴 때 읽음)
+        self.last_lead: dict | None = None  # 직전 프레임의 거리·TTC (schemas.LeadRisk)
 
     def __call__(self, frame: np.ndarray, t_s: float) -> list[NearMissWarning]:
         """프레임을 분석하고 이번 프레임의 경고 목록을 돌려준다.
@@ -41,6 +43,7 @@ class PipelineWarningSource:
         result = self._pipeline.process(frame, t_s)
         front = result["front"]
         lead = self._lead.update(front, frame.shape[1], t_s)
+        self.last_result, self.last_lead = result, lead
         return self._judge.update(
             lead,
             result["brake"],
