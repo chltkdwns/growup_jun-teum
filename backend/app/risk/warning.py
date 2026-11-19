@@ -33,17 +33,17 @@ def level_from_ttc(ttc_s: float | None, cfg_risk: dict) -> int:
 
 
 def is_headway_short(distance_m: float | None, speed_kmh: float | None, cfg_risk: dict) -> bool:
-    """앞차까지 거리가 안전거리(내 속도 × safe_time_s)보다 가까운지 본다.
+    """앞차까지 거리가 안전거리(내 속도 ÷ 3.6 × safe_gap_s)보다 가까운지 본다.
 
     사용처: 4단계. raw_level()에서 매 프레임.
-    입력: distance_m 앞차까지 거리(m, 없으면 None), speed_kmh 내 속도(km/h, 모르면 None), cfg_risk (safe_time_s)
+    입력: distance_m 앞차까지 거리(m, 없으면 None), speed_kmh 내 속도(km/h, 모르면 None), cfg_risk (safe_gap_s)
     출력: 가까우면 True
     주의: 내 속도나 거리를 모르면 False다 (SPEC: 속도를 모르면 안전거리 기준은 건너뜀).
           안전거리와 정확히 같으면 부족하지 않은 것으로 본다.
     """
     if distance_m is None or speed_kmh is None:
         return False
-    return distance_m < speed_kmh * KMH_TO_MS * cfg_risk["safe_time_s"]
+    return distance_m < speed_kmh * KMH_TO_MS * cfg_risk["safe_gap_s"]
 
 
 def raw_level(
@@ -89,7 +89,7 @@ class WarningJudge:
         """설정값을 읽고 상태를 비운다.
 
         사용처: 영상(또는 카메라) 하나를 시작할 때 한 번.
-        입력: cfg_risk config의 risk 섹션 (ttc_warning_s, ttc_danger_s, safe_time_s, level_down_hold_s,
+        입력: cfg_risk config의 risk 섹션 (ttc_warning_s, ttc_danger_s, safe_gap_s, level_down_hold_s,
               lane_departure_ratio, lane_departure_skip_after_change_s, lane_departure_level)
         """
         self.cfg = cfg_risk

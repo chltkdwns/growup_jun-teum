@@ -12,6 +12,7 @@ from app.risk.warning_source import PipelineWarningSource
 CFG = yaml.safe_load((Path(__file__).parents[1] / "config.yaml").read_text(encoding="utf-8"))["risk"]
 IMG_W, IMG_H, FPS = 1280, 720, 30
 FRAME = np.zeros((IMG_H, IMG_W, 3), np.uint8)
+NO_SPEED_KMH = 0.0  # 안전거리 0m라 안전거리 주의가 안 나온다 (TTC·경고만 보려는 테스트용)
 NO_OFFSET = {"lane_offset_ratio": None, "lane_status": "unavailable"}
 
 
@@ -40,7 +41,7 @@ def _run(source, seconds):
 
 def test_closing_lead_car_becomes_warning_then_danger():
     """요약: 15m 앞차가 6m/s로 다가오면 TTC 3초 근처부터 경고, 1.5초 근처부터 위험이 나온다."""
-    src = PipelineWarningSource(FakePipeline(lambda t: 20.0 - 6.0 * t), CFG)
+    src = PipelineWarningSource(FakePipeline(lambda t: 20.0 - 6.0 * t), CFG, speed_kmh=NO_SPEED_KMH)
     levels = {t: [w.level for w in ws] for t, ws in _run(src, 2.0)}
     assert levels[0.0] == []  # 기록이 모자란 처음 프레임들
     first_warning = next(t for t, lv in levels.items() if "warning" in lv)
@@ -51,7 +52,7 @@ def test_closing_lead_car_becomes_warning_then_danger():
 
 def test_far_steady_car_gives_no_warning():
     """요약: 거리가 일정한 앞차는 경고가 없다."""
-    src = PipelineWarningSource(FakePipeline(lambda t: 25.0), CFG)
+    src = PipelineWarningSource(FakePipeline(lambda t: 25.0), CFG, speed_kmh=NO_SPEED_KMH)
     assert all(ws == [] for _, ws in _run(src, 1.0))
 
 
@@ -71,10 +72,24 @@ def test_warning_converts_to_event_for_recording():
 
 
 def test_speed_enables_headway_caution():
-    """요약: 내 속도를 알려 주면(72km/h → 안전거리 40m) 30m 정지 앞차도 주의가 나오고, 모르면 안 나온다."""
-    pipe = FakePipeline(lambda t: 30.0)
-    assert [w.level for w in PipelineWarningSource(pipe, CFG, speed_kmh=72.0)(FRAME, 0.0)] == ["caution"]
-    assert PipelineWarningSource(pipe, CFG)(FRAME, 0.0) == []
+    """요약: 내 속도 72km/h(안전거리 40m)면 30m 앞차는 주의, 90m 앞차는 안전."""
+    assert [w.level for w in PipelineWarningSource(FakePipeline(lambda t: 30.0), CFG, speed_kmh=72.0)(FRAME, 0.0)] == ["caution"]
+    assert PipelineWarningSource(FakePipeline(lambda t: 90.0), CFG, speed_kmh=72.0)(FRAME, 0.0) == []
+
+
+def test_default_speed_used_when_not_given():
+    """요약: 속도를 안 주면 default_speed_kmh(100km/h, 안전거리 약 55.6m)를 쓴다. 50m는 주의, 60m는 안전."""
+    assert CFG["default_speed_kmh"] == 100
+    assert [w.level for w in PipelineWarningSource(FakePipeline(lambda t: 50.0), CFG)(FRAME, 0.0)] == ["caution"]
+    assert PipelineWarningSource(FakePipeline(lambda t: 60.0), CFG)(FRAME, 0.0) == []
+
+
+def test_speed_change_applies_from_next_frame():
+    """요약: set_speed가 오면 서버가 speed_kmh에 대입하고, 다음 프레임부터 새 속도로 판단한다."""
+    src = PipelineWarningSource(FakePipeline(lambda t: 30.0), CFG, speed_kmh=36.0)  # 안전거리 20m
+    assert src(FRAME, 0.0) == []
+    src.speed_kmh = 72.0  # 안전거리 40m
+    assert [w.level for w in src(FRAME, 1.0)] == ["caution"]
 
 
 def test_lane_departure_comes_with_lead_warning():

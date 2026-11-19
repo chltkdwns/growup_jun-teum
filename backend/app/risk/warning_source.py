@@ -15,7 +15,8 @@ class PipelineWarningSource:
 
     사용처: 4단계(경고 판단) 자리. 영상 업로드 분석 스레드와 /live WebSocket이 매 프레임 호출한다.
     주의: 클래스로 만든 이유: 거리·TTC 기록과 경고 단계 상태를 프레임 사이에 기억해야 해서.
-          프레임은 촬영 순서대로 넣어야 한다. speed_kmh를 모르면 None으로 둔다 (안전거리 판단만 건너뜀).
+          프레임은 촬영 순서대로 넣어야 한다. 내 속도(speed_kmh)는 화면이 set_speed로 보낸 값이 들어오고(서버가 이 객체의
+          speed_kmh에 대입하면 다음 프레임부터 반영), 한 번도 안 보냈으면 config의 default_speed_kmh를 쓴다.
     """
 
     def __init__(self, pipeline, cfg_risk: dict, speed_kmh: float | None = None) -> None:
@@ -23,12 +24,12 @@ class PipelineWarningSource:
 
         사용처: 영상(또는 카메라) 하나를 시작할 때 한 번.
         입력: pipeline app.pipeline.PerceptionPipeline (영상 하나에 하나), cfg_risk config의 risk 섹션,
-              speed_kmh 내 속도(km/h, 모르면 None. GPS·수동 입력은 아직 연결 전)
+              speed_kmh 내 속도(km/h, None이면 cfg_risk의 default_speed_kmh. 폰 GPS 또는 화면 슬라이더 값을 서버가 넣어 줌)
         """
         self._pipeline = pipeline
         self._lead = LeadRiskTracker(cfg_risk)
         self._judge = WarningJudge(cfg_risk)
-        self.speed_kmh = speed_kmh
+        self.speed_kmh = cfg_risk["default_speed_kmh"] if speed_kmh is None else speed_kmh
 
     def __call__(self, frame: np.ndarray, t_s: float) -> list[NearMissWarning]:
         """프레임을 분석하고 이번 프레임의 경고 목록을 돌려준다.
