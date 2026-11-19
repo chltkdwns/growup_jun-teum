@@ -67,10 +67,10 @@ detect:
 
 # ---------- 브레이크등 인식 (성아영) ----------
 brake:
-  weights_path: weights/brake_v1.pt  # 브레이크등 YOLO 가중치 (backend 기준, Colab 학습 best.pt. *.pt는 커밋 금지)
+  weights_path: weights/brake_8s.pt  # 브레이크등 YOLO 가중치 (backend 기준, Colab 학습 YOLOv8s 입력 960 best.pt = brake_s960 48 epoch. 2026-11-18 팀 확정. *.pt는 커밋 금지)
   score_min: 0.3            # 이보다 확신도가 낮은 브레이크등 모델 박스는 버림
   on_score_min: 0.5         # "켜짐"은 이 확신도 이상일 때만 인정 (꺼짐을 켜짐으로 착각하는 오경보 31%를 줄이려고 높임)
-  imgsz: 640                # 모델 입력 크기 (px, 학습 크기와 같게)
+  imgsz: 960                # 모델 입력 크기 (px, 학습 크기와 같게. v8s는 960으로 학습)
   device: null              # null이면 자동(GPU 있으면 GPU), "cpu" 또는 0(첫 GPU)
   match_iou_min: 0.3        # 앞차 박스와 이만큼(겹친 넓이 비율 0~1) 이상 겹쳐야 같은 차로 봄
   third_lamp_region_ratio: [0.30, 0.00, 0.70, 0.30]  # 보조 제동등 영역 [x1, y1, x2, y2] (차 박스 대비, 위쪽 가운데)
@@ -84,6 +84,25 @@ brake:
   baseline_window_s: 1.0    # "평소 밝기"를 낼 최근 시간 (초)
   baseline_min_count: 3     # 평소 밝기를 믿으려면 필요한 최소 프레임 수 (처음 몇 프레임은 비교 안 함)
   vote_window_s: 0.2        # 최근 이 시간(초) 판단의 다수결로 최종 켜짐/꺼짐 (한두 프레임 오판 제거)
+
+# ---------- 거리·TTC (app/risk/lead.py, 성아영) ----------
+risk:
+  hfov_deg: 70              # 카메라 수평 화각 (도). 초점거리(px) = 화면 절반 폭 ÷ tan(화각/2). 휴대폰 기본 카메라 약 65~75 [추정], 광각 블랙박스는 더 큼. 카메라마다 확인 필요
+  real_width_m:             # 차종별 실제 폭 (m, 핀홀 거리 계산용. YOLO 클래스 이름 기준, 없는 클래스는 car 값)
+    car: 1.8                # 승용차 (SPEC)
+    motorcycle: 0.8         # 이륜차 (SPEC)
+    bus: 2.5                # 대형차 법정 최대 폭 2.5m [추정: SPEC에 없어 추가]
+    truck: 2.5              # 대형차 법정 최대 폭 2.5m [추정: SPEC에 없어 추가]
+  ttc_window_s: 0.7         # TTC 직선 맞추기에 쓸 최근 시간 (초, SPEC)
+  ttc_min_samples: 5        # 직선을 맞추려면 필요한 최소 기록 수 (앞차가 바뀐 직후 몇 프레임은 TTC 없음. 30fps 기준 약 0.17초)
+  ttc_max_s: 10.0           # 이보다 큰 TTC는 None (가까워지지 않음과 같게 봄. 경고 기준 3초보다 충분히 큼)
+  ttc_warning_s: 3.0        # TTC가 이 값(초) 이하면 "경고" (SPEC, 경계값 포함)
+  ttc_danger_s: 1.5         # TTC가 이 값(초) 이하면 "위험" (SPEC, 경계값 포함)
+  safe_time_s: 2.0          # 안전거리 = 내 속도(km/h) ÷ 3.6 × 이 시간(초). 이보다 가까우면 "주의" (SPEC. 내 속도를 모르면 이 판단만 건너뜀)
+  level_down_hold_s: 0.5    # 경고 단계를 내릴 때 이 시간(초) 동안 낮은 상태가 이어져야 내림 (올릴 때는 즉시. 깜빡임 방지, 초기값)
+  lane_departure_ratio: 1.0 # |차선 치우침 비율|이 이 값 이상이면 차선 이탈 (1.0 = 선 위. 개발용 영상으로만 조정, 초기값)
+  lane_departure_skip_after_change_s: 1.0  # 내 차로 변경을 감지한 뒤 이 시간(초)은 차선 이탈 판단 안 함 (의도한 차로 변경을 이탈로 보지 않게. 장혜민 cut_in.ignore_after_lane_change_s와 같은 값)
+  lane_departure_level: caution  # 차선 이탈 경고 단계 (caution=주의, warning=경고. 경고 이상이어야 아찔한 순간으로 저장됨. SPEC에 단계 없음, 성아영 판단)
 
 # ---------- 분석 파이프라인 (app/pipeline.py, 장혜민) ----------
 pipeline:

@@ -2,7 +2,7 @@
 
 흐름: 브레이크등 YOLO(차 박스 + 켜짐/꺼짐 2클래스)를 전체 프레임에 돌림 → 앞차 박스와 가장 많이 겹치는 결과를 고름
       → 미등 걸러내기(보조 제동등 빨강, 좌우 등이 평소보다 밝아졌는지) → 최근 짧은 시간 다수결
-모델: Roboflow "State of vehicle tail lamp detection"(국민대, CC BY 4.0)으로 Colab에서 학습한 YOLOv8n.
+모델: Roboflow "State of vehicle tail lamp detection"(국민대, CC BY 4.0)으로 Colab에서 학습한 YOLOv8s(입력 960, 2026-11-18 팀 확정).
       클래스는 car_BrakeOff / car_BrakeOn 이고, 박스는 등이 아니라 차 전체에 쳐져 있다.
 """
 
