@@ -73,7 +73,7 @@ CLAUDE.md에서 분리한 기획 내용이다. 원본은 기획서 수정본(202
 
 | 항목 | 확정 |
 | --- | --- |
-| 모델 구조 | 차 박스 + 켜짐/꺼짐 2클래스 YOLO (YOLOv8n, Colab 학습). 전체 프레임에 돌린 뒤 앞차 박스와 가장 많이 겹치는 결과를 쓴다 |
+| 모델 구조 | 차 박스 + 켜짐/꺼짐 2클래스 YOLO (YOLOv8s, Colab 학습). 전체 프레임에 돌린 뒤 앞차 박스와 가장 많이 겹치는 결과를 쓴다 |
 | 학습 데이터 | Roboflow "State of vehicle tail lamp detection" v3 (국민대, CC BY 4.0, 약 9,900장, car_BrakeOff/car_BrakeOn) |
 | 미등 걸러내기 | 모델이 켜짐이어도 보조 제동등 빨강 또는 좌우 등 밝아짐이 있을 때만 켜짐 (`app/signal/brake.py`) |
 | 깜빡이 | 라벨링하지 않음. 기획서대로 학습 없이 밝기 패턴 (2차 기능) |
