@@ -1,6 +1,6 @@
 """영상 업로드 분석 테스트. .env의 DATABASE_URL(로컬 teum DB)에 실제로 쓰고, 끝나면 지운다.
 
-YOLO 가중치 없이 돌도록 경고 판단은 FakeWarningSource(프레임을 안 봄)로 바꿔 끼운다.
+YOLO 가중치 없이 돌도록 경고 판단은 _ScriptedJudge(프레임을 안 봄)로 바꿔 끼운다.
 """
 
 import os
@@ -22,7 +22,6 @@ from sqlalchemy import select
 
 from app import main
 from app.db import SessionLocal
-from app.fake_warning import FakeWarningSource
 from app.models import Clip, Device, Drive, Event
 from app.nearmiss import ROOT
 from app.schemas import NearMissWarning
@@ -80,6 +79,13 @@ class _ScriptedJudge:
         }
         w = script.get(round(t_s, 1))
         return [w] if w else []
+
+
+class _NoWarningJudge:
+    """경고를 하나도 내지 않는 가짜 판단 (기록 권한만 시험할 때)."""
+
+    def __call__(self, frame: np.ndarray, t_s: float) -> list[NearMissWarning]:
+        return []
 
 
 def _new_upload_drive(did: uuid.UUID) -> int:
@@ -153,7 +159,7 @@ def test_upload_job_fails_on_broken_file(device_id, tmp_path):
 def test_upload_api_runs_in_background(device_id, video_path, tmp_path, monkeypatch):
     """POST /drives/upload는 바로 답하고(queued), 분석이 끝나면 GET .../analysis가 done과 이벤트 수를 준다."""
     monkeypatch.setattr(main, "UPLOAD_DIR", tmp_path / "uploads")
-    monkeypatch.setattr(main, "make_upload_judge", lambda: FakeWarningSource([1.0]))
+    monkeypatch.setattr(main, "make_judge", _ScriptedJudge)
     headers = {"X-Device-Id": str(device_id)}
     with video_path.open("rb") as f:
         res = client.post(
@@ -184,7 +190,7 @@ def test_upload_api_runs_in_background(device_id, video_path, tmp_path, monkeypa
 def test_analysis_hides_other_devices(device_id, video_path, tmp_path, monkeypatch):
     """다른 기기는 남의 분석 상황을 404로 본다. 기기 헤더가 없으면 422."""
     monkeypatch.setattr(main, "UPLOAD_DIR", tmp_path / "uploads")
-    monkeypatch.setattr(main, "make_upload_judge", lambda: FakeWarningSource([]))
+    monkeypatch.setattr(main, "make_judge", _NoWarningJudge)
     with video_path.open("rb") as f:
         res = client.post(
             "/drives/upload",

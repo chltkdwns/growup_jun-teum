@@ -18,11 +18,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from starlette.websockets import WebSocketDisconnect
 
+from app import main
 from app.db import SessionLocal
 from app.live_recorder import LiveRecorder
 from app.main import app
 from app.models import Clip, Device, Drive, Event
-from app.nearmiss import NEARMISS_CFG, ROOT
+from app.nearmiss import ROOT
 from app.schemas import NearMissWarning
 
 client = TestClient(app)
@@ -102,10 +103,27 @@ def test_live_recorder_flushes_on_close(device_id):
     assert events[0].clip.post_s == pytest.approx(0.2)
 
 
+class _FirstFrameDangerJudge:
+    """첫 프레임에만 위험 경고 1개를 내는 가짜 판단 (프레임 내용은 안 봄)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.speed_kmh = None
+        self.last_result = None  # 서버가 화면 표시용 박스·차선을 읽는 곳 (가짜라 비워 둠)
+        self.speeds_seen: list[float | None] = []  # 프레임마다 그때의 내 속도 (속도 메시지 시험용)
+
+    def __call__(self, frame: np.ndarray, t_s: float) -> list[NearMissWarning]:
+        self.calls += 1
+        self.speeds_seen.append(self.speed_kmh)
+        if self.calls > 1:
+            return []
+        return [NearMissWarning(t_s=t_s, type="lead", level="danger", ttc_s=1.3)]
+
+
 def test_ws_creates_live_drive_and_answers(device_id, monkeypatch):
     """/live: 연결하면 주행(live)이 생기고, 프레임마다 결과를 받고, 끊으면 주행이 끝난다.
-    가짜 경고를 0초로 켜 두면 첫 프레임에서 이벤트가 저장되고, 끊을 때 클립이 남는다."""
-    monkeypatch.setitem(NEARMISS_CFG, "live_fake_warning_at_s", [0.0])
+    YOLO 없이 돌도록 첫 프레임에만 위험을 내는 판단으로 바꿔 끼우면, 이벤트가 저장되고 끊을 때 클립이 남는다."""
+    monkeypatch.setattr(main, "make_judge", _FirstFrameDangerJudge)
     with client.websocket_connect(f"/live?device_id={device_id}") as ws:
         drive_id = ws.receive_json()["drive_id"]
         ws.send_bytes(JPG)
@@ -124,6 +142,23 @@ def test_ws_creates_live_drive_and_answers(device_id, monkeypatch):
     assert drive.ended_at is not None
     assert len(events) == 1
     assert events[0].clip is not None
+
+
+def test_ws_speed_message_reaches_judge(device_id, monkeypatch):
+    """글자 메시지 {"speed_kmh"}는 답 없이 판단의 내 속도로 들어가고, 다음 프레임부터 쓰인다."""
+    judge = _FirstFrameDangerJudge()
+    monkeypatch.setattr(main, "make_judge", lambda: judge)
+    with client.websocket_connect(f"/live?device_id={device_id}") as ws:
+        ws.receive_json()  # drive_id
+        ws.send_bytes(JPG)
+        ws.receive_json()
+        ws.send_text('{"speed_kmh": 87.5}')
+        ws.send_bytes(JPG)
+        ws.receive_json()  # 속도 메시지에는 답이 없어서, 바로 다음 답이 두 번째 프레임 것이다
+        ws.send_text('{"speed_kmh": null}')
+        ws.send_bytes(JPG)
+        ws.receive_json()
+    assert judge.speeds_seen == [None, 87.5, None]
 
 
 def test_ws_requires_device_id():
