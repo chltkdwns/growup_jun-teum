@@ -1,6 +1,6 @@
 """분석(PerceptionPipeline) 결과로 진짜 경고를 내는 WarningSource (schemas.WarningSource 모양: 프레임 → 경고 목록).
 
-fake_warning.PipelineFakeWarningSource 자리에 그대로 꽂는다. main.py가 이것을 만들면 가짜 경고는 필요 없어진다.
+main.py의 make_judge()가 영상 업로드 분석과 /live에 하나씩 만들어 쓴다.
 흐름: pipeline.process() → LeadRiskTracker(거리·TTC) → WarningJudge(경고 단계)
 """
 import numpy as np

@@ -1,6 +1,7 @@
 """아찔한 순간 기록 API (영상 업로드 분석, 저장·목록, 실시간 /live). 로직은 nearmiss.py·live_recorder.py·upload_analyzer.py에 있다."""
 
 import asyncio
+import json
 import os
 import shutil
 import time
@@ -31,12 +32,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.fake_warning import FakeWarningSource, PipelineFakeWarningSource
 from app.live_recorder import LiveRecorder
 from app.models import Clip, Device, Drive, Event
 from app.nearmiss import CONFIG_PATH, NEARMISS_CFG, ROOT, EventIn, record_event
 from app.pipeline import PerceptionPipeline
-from app.schemas import WarningSource
+from app.risk.warning_source import PipelineWarningSource
 from app.upload_analyzer import UploadProgress, run_upload_job
 
 # FastAPI 권장 방식: 요청마다 DB 세션을 주입받는 타입
@@ -133,18 +133,16 @@ def create_drive(body: DriveIn, device_id: DeviceIdDep, session: SessionDep) -> 
     return {"drive_id": drive.id}
 
 
-def make_upload_judge() -> WarningSource:
-    """올린 영상 1개에 쓸 경고 판단을 만든다. 경고 판단(성아영)이 나오면 이 함수의 return 한 줄만 바꾼다.
+def make_judge() -> PipelineWarningSource:
+    """영상 1개 또는 실시간 연결 1개에 쓸 경고 판단(분석 → 거리·TTC → 경고 단계)을 만든다.
 
-    사용처: 4단계(경고 판단) 자리. 분석 스레드(run_upload_job)가 영상마다 한 번 부른다.
+    사용처: 4단계(경고 판단) 자리. 업로드 분석 스레드(run_upload_job)는 영상마다, /live는 연결마다 한 번 부른다.
     입력: 없음
-    출력: WarningSource (frame, t_s → 경고 목록)
-    주의: 지금은 분석은 진짜, 경고는 가짜다 (config nearmiss.upload_fake_warning_at_s 시각에 1번씩).
+    출력: PipelineWarningSource (frame, t_s → 경고 목록). 내 속도는 만든 뒤 speed_kmh에 대입한다
+    주의: 추적·TTC 기록이 영상마다 달라야 해서 매번 새로 만든다 (YOLO도 다시 불러옴, 11/5 결정).
           YOLO 가중치 경로가 backend 기준이라 서버는 backend 폴더에서 켜야 한다.
     """
-    return PipelineFakeWarningSource(
-        PerceptionPipeline(CFG), NEARMISS_CFG["upload_fake_warning_at_s"]
-    )
+    return PipelineWarningSource(PerceptionPipeline(CFG), CFG["risk"])
 
 
 @app.post("/drives/upload")
@@ -171,7 +169,7 @@ def upload_video(file: UploadFile, device_id: DeviceIdDep, session: SessionDep) 
     progress = UploadProgress()
     UPLOAD_JOBS[drive.id] = progress
     UPLOAD_POOL.submit(
-        run_upload_job, drive.id, video_path, make_upload_judge, progress
+        run_upload_job, drive.id, video_path, make_judge, progress
     )
     # progress.status는 맡기자마자 running으로 바뀔 수 있어서, 받은 시점의 상태(queued)를 그대로 답한다
     return {"drive_id": drive.id, "status": "queued"}
@@ -319,7 +317,8 @@ async def live(websocket: WebSocket, device_id: Annotated[uuid.UUID, Query()]) -
     """실시간 주행. 폰이 JPEG 프레임을 보내면 경고 판단 결과(JSON)를 돌려보내고, 아찔한 순간은 클립으로 저장한다.
 
     사용처: 5단계(표시·기록). 앱 주행 화면이 ws://서버/live?device_id=<UUID>로 연결한다.
-    입력: 바이너리 메시지 1개 = JPEG 프레임 1장
+    입력: 바이너리 메시지 1개 = JPEG 프레임 1장. 글자 메시지 {"speed_kmh": 내 속도(km/h, 모르면 null)} = 폰 GPS 속도
+          (속도가 바뀔 때만 보낸다. 안 오면 안전거리 판단만 건너뛴다)
     출력: 연결 직후 {"drive_id"}, 이후 프레임마다 {"t_s", "warnings"}
     주의: 브라우저 WebSocket은 헤더를 못 붙여서 기기 UUID를 X-Device-Id 대신 주소(query)로 받는다.
           없거나 UUID 모양이 아니면 FastAPI가 연결을 거절한다(1008).
@@ -328,18 +327,26 @@ async def live(websocket: WebSocket, device_id: Annotated[uuid.UUID, Query()]) -
     await websocket.accept()
     recorder = LiveRecorder(device_id)
     drive_id = await asyncio.to_thread(recorder.start)
-    # 연결마다 새로 만든다. 진짜 경고 판단으로 바꿔도 YOLO·추적 상태는 연결마다 새로 불러온다(11/5 결정)
-    judge = FakeWarningSource(NEARMISS_CFG["live_fake_warning_at_s"])
+    # 연결마다 새로 만든다 (YOLO·추적 상태는 연결마다 새로 불러온다, 11/5 결정). 불러오는 동안 다른 연결이 멈추지 않게 스레드에서
+    judge = await asyncio.to_thread(make_judge)
     await websocket.send_json({"drive_id": drive_id})
 
     # 촬영 시각 = 서버가 받은 순간 (Windows에서 monotonic은 해상도가 약 16ms라 perf_counter 사용)
     t0 = time.perf_counter()
     try:
         while True:
-            jpg = await websocket.receive_bytes()
+            msg = await websocket.receive()
+            if msg["type"] == "websocket.disconnect":
+                break
+            if msg.get("text") is not None:
+                # 속도는 답하지 않고 다음 프레임 판단부터 반영한다
+                judge.speed_kmh = json.loads(msg["text"])["speed_kmh"]
+                continue
+            jpg = msg["bytes"]
             t_s = time.perf_counter() - t0
             frame = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
-            warnings = judge(frame, t_s)
+            # YOLO 분석은 프레임당 수십 ms라, 그동안 다른 연결이 멈추지 않게 스레드에서 돌린다
+            warnings = await asyncio.to_thread(judge, frame, t_s)
             recorder.submit(jpg, t_s, warnings)
             await websocket.send_json(
                 {"t_s": t_s, "warnings": [asdict(w) for w in warnings]}
