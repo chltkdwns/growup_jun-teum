@@ -2,14 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import { liveSocketUrl } from '../api.js'
 import {
   LEVEL_ORDER,
+  LIVE_FRAME_ASPECT,
   LIVE_FRAME_WIDTH_PX,
   LIVE_JPEG_QUALITY,
   LIVE_MIN_FRAME_INTERVAL_MS,
 } from '../constants.js'
 import useGps from '../useGps.js'
+import { playWarningSound, unlockSound } from '../warningSound.js'
 import { topWarning } from '../warnings.js'
+import BoxOverlay from './BoxOverlay.jsx'
 import DriveStats from './DriveStats.jsx'
 import GpsPanel from './GpsPanel.jsx'
+import LaneOverlay from './LaneOverlay.jsx'
 import WarningBadge from './WarningBadge.jsx'
 
 // 이번 주행 분석의 처음 값
@@ -57,6 +61,8 @@ export default function LiveDrive() {
   const [running, setRunning] = useState(false)
   const [driveId, setDriveId] = useState(null)
   const [warnings, setWarnings] = useState([])
+  const [overlay, setOverlay] = useState(null) // 서버가 보낸 박스·차선 { boxes, lanes, frameW, frameH } (보낸 프레임 기준 px)
+  const lastLevelRef = useRef('safe') // 직전 프레임의 가장 높은 단계 (단계가 올라간 순간에만 소리 내려고)
   const [rttMs, setRttMs] = useState(null) // 프레임을 보내고 답을 받기까지 걸린 시간
   const [error, setError] = useState(null)
   const [stats, setStats] = useState(emptyStats)
@@ -75,15 +81,31 @@ export default function LiveDrive() {
   // 화면을 떠나면(탭 이동) 카메라와 연결을 정리한다
   useEffect(() => stop, [])
 
-  // 지금 카메라 화면을 줄여서 JPEG로 보낸다
+  // GPS 속도가 바뀌면 서버에 알린다. 서버는 이 값으로 안전거리(주의)를 판단한다 (모르면 null → 그 판단만 건너뜀)
+  const speedKmh = gps.fix?.speedKmh ?? null
+  useEffect(() => {
+    const s = sessionRef.current
+    if (!s || s.ws.readyState !== WebSocket.OPEN) return
+    s.ws.send(JSON.stringify({ speed_kmh: speedKmh }))
+  }, [speedKmh, driveId]) // driveId: 연결 직후(첫 메시지 받은 뒤)에도 한 번 보낸다
+
+  // 지금 카메라 화면에서 화면에 보이는 가운데 16:9 부분만 잘라, 줄여서 JPEG로 보낸다.
+  // 폰을 세로로 들면 카메라 사진이 세로로 길다. 그대로 보내면 차선 코드(가로 블랙박스 화면 가정)가
+  // 화면에 안 보이는 아래쪽을 차선 영역으로 보고 엉뚱한 선을 잡는다. 보이는 것 = 분석하는 것으로 맞춘다.
   function sendFrame() {
     const s = sessionRef.current
     const video = videoRef.current
     if (!s || s.ws.readyState !== WebSocket.OPEN) return
-    const scale = LIVE_FRAME_WIDTH_PX / video.videoWidth
+    const vw = video.videoWidth
+    const vh = video.videoHeight
+    // 가운데 자르기 (CSS object-fit: cover와 같은 영역)
+    const cropW = Math.min(vw, vh * LIVE_FRAME_ASPECT)
+    const cropH = cropW / LIVE_FRAME_ASPECT
     s.canvas.width = LIVE_FRAME_WIDTH_PX
-    s.canvas.height = Math.round(video.videoHeight * scale)
-    s.canvas.getContext('2d').drawImage(video, 0, 0, s.canvas.width, s.canvas.height)
+    s.canvas.height = Math.round(LIVE_FRAME_WIDTH_PX / LIVE_FRAME_ASPECT)
+    s.canvas
+      .getContext('2d')
+      .drawImage(video, (vw - cropW) / 2, (vh - cropH) / 2, cropW, cropH, 0, 0, s.canvas.width, s.canvas.height)
     s.canvas.toBlob(
       (blob) => {
         if (sessionRef.current !== s || s.ws.readyState !== WebSocket.OPEN) return
@@ -96,8 +118,11 @@ export default function LiveDrive() {
   }
 
   async function start() {
+    unlockSound() // 버튼을 누른 지금 열어 둬야 폰에서 나중에 경고음이 난다
+    lastLevelRef.current = 'safe'
     setError(null)
     setWarnings([])
+    setOverlay(null)
     setRttMs(null)
     setDriveId(null)
     setStats(emptyStats())
@@ -132,6 +157,11 @@ export default function LiveDrive() {
       const rtt = performance.now() - s.sentAt
       setRttMs(rtt)
       setWarnings(msg.warnings)
+      // 박스·차선 좌표는 방금 보낸 프레임(canvas) 크기 기준이다
+      setOverlay({ boxes: msg.boxes, lanes: msg.lanes, frameW: s.canvas.width, frameH: s.canvas.height })
+      const level = topWarning(msg.warnings)?.level ?? 'safe'
+      if (LEVEL_ORDER.indexOf(level) > LEVEL_ORDER.indexOf(lastLevelRef.current)) playWarningSound(level)
+      lastLevelRef.current = level
       setStats((st) => updateStats(st, msg.warnings, rtt))
       // 너무 자주 보내지 않게 최소 간격을 채운 뒤 다음 프레임
       setTimeout(sendFrame, Math.max(0, LIVE_MIN_FRAME_INTERVAL_MS - rtt))
@@ -146,6 +176,8 @@ export default function LiveDrive() {
     <section className="live">
       <div className="live-view">
         <video ref={videoRef} muted playsInline />
+        {running && overlay && <LaneOverlay {...overlay} />}
+        {running && overlay && <BoxOverlay {...overlay} />}
         {running && <WarningBadge warnings={warnings} />}
         {!running && <p className="live-idle muted">주행을 시작하면 카메라가 켜집니다</p>}
       </div>

@@ -52,6 +52,8 @@ main { padding-bottom: 80px; }
 .live-view { position: relative; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #000; }
 .live-view video { width: 100%; height: 100%; object-fit: cover; }
 .live-idle { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; }
+/* 박스·차선: 비디오와 같은 크기로 겹쳐 그림 (클릭은 아래로 통과) */
+.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 /* 경고 배지: 카메라 오른쪽 위 */
 .warning-badge {
   position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; align-items: flex-end;
