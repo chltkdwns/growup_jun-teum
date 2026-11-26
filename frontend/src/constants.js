@@ -37,7 +37,10 @@ export const ANALYSIS_POLL_MS = 2000
 export const LEVEL_ORDER = ['safe', 'caution', 'warning', 'danger']
 
 // 실시간 주행: 서버로 보내는 프레임 크기와 화질. 원본(1080p)을 그대로 보내면 폰 데이터와 전송 시간이 커진다
-export const LIVE_FRAME_WIDTH_PX = 640 // 가로 폭 (px, 세로는 비율대로)
+export const LIVE_FRAME_WIDTH_PX = 640 // 가로 폭 (px)
+// 보내는 프레임 가로:세로. 카메라 사진의 가운데를 이 비율로 잘라 보낸다 (폰 세로·가로 상관없이 블랙박스와 같은 비율).
+// index.css .live-view의 aspect-ratio(16 / 9)와 같아야 화면에 보이는 부분 = 분석하는 부분이 된다
+export const LIVE_FRAME_ASPECT = 16 / 9
 export const LIVE_JPEG_QUALITY = 0.7 // JPEG 화질 (0~1)
 // 프레임을 보내는 최소 간격 (ms). 서버 답이 빨라도 초당 약 15장을 넘기지 않게 해서 배터리·데이터를 아낀다
 export const LIVE_MIN_FRAME_INTERVAL_MS = 66
@@ -61,3 +64,19 @@ export const GPS_MAX_ACCURACY_M = 30
 
 // 주행 종류 (서버 drives.source 값) → 화면 이름
 export const DRIVE_SOURCES = { live: '실시간', upload: '영상' }
+
+// 카메라 위에 그리는 박스·차선 색 (서버 /live 답의 boxes·lanes를 그대로 그림)
+export const OVERLAY_COLORS = {
+  box: '#e5e7eb', // 다른 차 (옅은 회색)
+  frontBox: '#22d3ee', // 앞차 (경고 색과 겹치지 않는 하늘색)
+  lane: '#22c55e', // 내 차선 좌우 선
+}
+export const OVERLAY_LINE_PX = { box: 2, frontBox: 4, lane: 4 } // 선 굵기 (보낸 프레임 기준 px)
+
+// docs/SPEC.md "경고 단계": 경고 = 경고음, 위험 = 강한 경고음 (주의는 소리 없음). 단계가 올라간 순간에 한 번 울린다
+export const WARNING_SOUNDS = {
+  warning: { freqHz: 880, beeps: 1 },
+  danger: { freqHz: 1320, beeps: 3 },
+}
+export const BEEP_MS = 150 // 삐 한 번 길이 (ms)
+export const BEEP_GAP_MS = 80 // 삐 사이 간격 (ms)
