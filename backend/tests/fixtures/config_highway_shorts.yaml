@@ -95,8 +95,8 @@ risk:
     motorcycle: 0.8         # 이륜차 (SPEC)
     bus: 2.5                # 대형차 법정 최대 폭 2.5m [추정: SPEC에 없어 추가]
     truck: 2.5              # 대형차 법정 최대 폭 2.5m [추정: SPEC에 없어 추가]
-  ttc_window_s: 0.7         # TTC 직선 맞추기에 쓸 최근 시간 (초, SPEC)
-  ttc_min_samples: 5        # 직선을 맞추려면 필요한 최소 기록 수 (앞차가 바뀐 직후 몇 프레임은 TTC 없음. 30fps 기준 약 0.17초)
+  ttc_window_s: 1.0         # TTC 직선 맞추기에 쓸 최근 시간 (초). SPEC 0.7초였으나 실시간(/live)은 약 4fps라 0.7초엔 기록이 3장뿐이어서 TTC가 안 나옴 → 1.0초 (2026-11-26 실시간 테스트)
+  ttc_min_samples: 3        # 직선을 맞추려면 필요한 최소 기록 수 (5였으나 실시간 약 4fps에서 1초에 4장이라 3으로 낮춤. 30fps 기준 약 0.1초)
   ttc_max_s: 10.0           # 이보다 큰 TTC는 None (가까워지지 않음과 같게 봄. 경고 기준 3초보다 충분히 큼)
   ttc_warning_s: 3.0        # TTC가 이 값(초) 이하면 "경고" (SPEC, 경계값 포함)
   ttc_danger_s: 1.5         # TTC가 이 값(초) 이하면 "위험" (SPEC, 경계값 포함)

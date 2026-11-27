@@ -320,7 +320,7 @@ async def live(websocket: WebSocket, device_id: Annotated[uuid.UUID, Query()]) -
     사용처: 5단계(표시·기록). 앱 주행 화면이 ws://서버/live?device_id=<UUID>로 연결한다.
     입력: 바이너리 메시지 1개 = JPEG 프레임 1장. 글자 메시지 {"speed_kmh": 내 속도(km/h, 모르면 null)} = 폰 GPS 속도
           (속도가 바뀔 때만 보낸다. 안 오면 안전거리 판단만 건너뛴다)
-    출력: 연결 직후 {"drive_id"}, 이후 프레임마다 {"t_s", "warnings", "boxes", "lanes"} (boxes·lanes는 live_overlay 참고)
+    출력: 연결 직후 {"drive_id"}, 이후 프레임마다 {"t_s", "warnings", "boxes", "lanes", "lead"} (boxes·lanes는 live_overlay 참고, lead = {"distance_m", "ttc_s"})
     주의: 브라우저 WebSocket은 헤더를 못 붙여서 기기 UUID를 X-Device-Id 대신 주소(query)로 받는다.
           없거나 UUID 모양이 아니면 FastAPI가 연결을 거절한다(1008).
           DB·클립 저장은 LiveRecorder가 뒤에서 하므로 이 루프는 기다리지 않는다.
@@ -354,6 +354,11 @@ async def live(websocket: WebSocket, device_id: Annotated[uuid.UUID, Query()]) -
                     "t_s": t_s,
                     "warnings": [asdict(w) for w in warnings],
                     **live_overlay(judge.last_result),
+                    # 화면 TTC·거리 칸용 (경고가 없을 때도 매 프레임 보냄. 앞차 없거나 계산 안 되면 None)
+                    "lead": {
+                        k: None if judge.last_lead is None or judge.last_lead[k] is None else float(judge.last_lead[k])
+                        for k in ("distance_m", "ttc_s")
+                    },
                 }
             )
     except WebSocketDisconnect:
